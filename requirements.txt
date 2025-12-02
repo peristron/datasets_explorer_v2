@@ -5,4 +5,4 @@ plotly>=5.18
 beautifulsoup4>=4.12
 requests>=2.31
 openai>=1.30
-streamlit-plotly-events>=2.0.1
+streamlit-plotly-events==0.0.6
