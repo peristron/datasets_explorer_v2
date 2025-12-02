@@ -21,6 +21,29 @@ import json
 import openai
 from streamlit_plotly_events import plotly_events
 
+# --- Password Protection ---
+def check_password():
+    """Returns True if password is correct or not set."""
+    password = st.secrets.get("app_password")
+    if not password:
+        return True  # No password set → open access
+
+    def password_entered():
+        if st.session_state["password"] == password:
+            st.session_state["password_correct"] = True
+            del st.session_state["password"]
+        else:
+            st.session_state["password_correct"] = False
+
+    if "password_correct" not in st.session_state:
+        st.text_input("Password", type="password", on_change=password_entered, key="password")
+        st.stop()
+    elif not st.session_state["password_correct"]:
+        st.text_input("Password", type="password", on_change=password_entered, key="password")
+        st.error("Wrong password")
+        st.stop()
+    return True
+
 # ========================= CONFIG & SECRETS =========================
 logging.basicConfig(level=logging.INFO)
 requests.packages.urllib3.disable_warnings()
@@ -369,5 +392,8 @@ def main():
                 st.write(response)
                 st.session_state.messages.append({"role": "assistant", "content": response})
 
+
 if __name__ == "__main__":
+    if check_password():
+        main()
     main()
