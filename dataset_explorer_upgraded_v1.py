@@ -38,7 +38,7 @@ def check_password():
 
 check_password()
 
-# ========================= RESTORED: SCRAPE SUCCESS MESSAGE =========================
+# ========================= SCRAPE SUCCESS MESSAGE =========================
 if 'scrape_msg' in st.session_state:
     st.success(st.session_state['scrape_msg'])
     del st.session_state['scrape_msg']
@@ -189,7 +189,7 @@ with st.sidebar:
         api_key = st.secrets.get(api_key_name)
         if not api_key: api_key = st.text_input(f"Enter {api_key_name}", type="password")
 
-    # --- SEARCH (NEW FEATURE) ---
+    # --- SEARCH ---
     st.divider()
     st.header("1. Search & Select")
     
@@ -198,7 +198,6 @@ with st.sidebar:
         with st.expander("🔍 Find Datasets by Column Name", expanded=True):
             col_search = st.text_input("Enter column (e.g. OrgUnitId)", placeholder="Type field name...")
             if col_search:
-                # Case-insensitive search
                 matches = df[df['column_name'].astype(str).str.contains(col_search, case=False)]
                 if not matches.empty:
                     found_datasets = sorted(matches['dataset_name'].unique())
@@ -268,6 +267,7 @@ with col_header:
     st.subheader("Connection Graph")
 with col_controls:
     graph_mode = st.radio("Graph Mode", options=['Between selected (Focused)', 'From selected (Discovery)'], horizontal=True)
+    show_edge_labels = st.checkbox("Show Join Column Labels", value=True)
 
 join_data = find_pk_fk_joins(df, selected_datasets)
 G = nx.DiGraph()
@@ -289,16 +289,36 @@ else:
                 G.add_edge(s, t, label=row['Join Column'])
 
 if G.number_of_nodes() > 0:
-    pos = nx.spring_layout(G, k=0.6, iterations=50)
+    pos = nx.spring_layout(G, k=0.7, iterations=60) # Increased k for spacing
     edge_x, edge_y = [], []
-    for u, v in G.edges():
+    
+    # Arrays for Edge Labels
+    label_x = []
+    label_y = []
+    label_text = []
+
+    for u, v, data in G.edges(data=True):
         x0, y0 = pos[u]
         x1, y1 = pos[v]
         edge_x.extend([x0, x1, None])
         edge_y.extend([y0, y1, None])
         
+        # Calculate Midpoint for Label
+        label_x.append((x0 + x1) / 2)
+        label_y.append((y0 + y1) / 2)
+        label_text.append(data.get('label', '?'))
+        
     edge_trace = go.Scatter(x=edge_x, y=edge_y, line=dict(width=1, color='#666'), hoverinfo='none', mode='lines')
     
+    # NEW: Trace for the text labels on lines
+    label_trace = go.Scatter(
+        x=label_x, y=label_y, 
+        mode='text', 
+        text=label_text,
+        textfont=dict(color='#00CCFF', size=11, family="monospace"), # Cyan text
+        hoverinfo='none'
+    )
+
     node_x, node_y, node_text, node_color, node_size = [], [], [], [], []
     for node in G.nodes():
         x, y = pos[node]
@@ -315,11 +335,15 @@ if G.number_of_nodes() > 0:
         marker=dict(color=node_color, size=node_size, line=dict(width=2, color='white'))
     )
 
-    fig = go.Figure(data=[edge_trace, node_trace], layout=go.Layout(
+    data_traces = [edge_trace, node_trace]
+    if show_edge_labels:
+        data_traces.insert(1, label_trace) # Add labels if checkbox is checked
+
+    fig = go.Figure(data=data_traces, layout=go.Layout(
         showlegend=False, hovermode='closest', margin=dict(b=0,l=0,r=0,t=0),
         xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
         yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-        height=550, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)'
+        height=600, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)'
     ))
     st.plotly_chart(fig, use_container_width=True)
 else:
@@ -374,22 +398,13 @@ if prompt := st.chat_input("e.g., Explain these columns..."):
         with st.spinner("Thinking..."):
             try:
                 context_df = df[df['dataset_name'].isin(selected_datasets)] if selected_datasets else df.head(50)
-                
-                # UPDATED SYSTEM PROMPT TO PREVENT HALLUCINATION
                 system_msg = f"""
                 You are an expert SQL Data Architect for Brightspace (D2L).
-                
-                IMPORTANT:
-                You have been provided schema context ONLY for the {len(selected_datasets)} datasets the user has explicitly selected.
-                There are ~140 total datasets in the system, but you cannot see them right now.
-                
-                DO NOT make absolute statements like "The total number of datasets with column X is Y" based on this subset.
-                Always clarify: "In the selected datasets, X appears in..."
-                
-                Selected Schema Context:
+                IMPORTANT: You are viewing a SUBSET of {len(selected_datasets)} selected datasets.
+                Do not make claims about the TOTAL database based on this subset.
+                Schema Context:
                 {context_df.to_csv(index=False)[:12000]}
                 """
-                
                 client = openai.OpenAI(api_key=api_key, base_url=base_url)
                 response = client.chat.completions.create(
                     model=model_name,
