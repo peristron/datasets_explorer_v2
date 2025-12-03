@@ -186,7 +186,7 @@ else:
     df = pd.DataFrame()
 
 with st.sidebar:
-    st.title("Brightspace Explorer")
+    st.title("Brightspace Datasets Explorer")
     
     # --- USER GUIDE ---
     with st.expander("❓ How to use this app", expanded=False):
@@ -473,3 +473,4 @@ if prompt := st.chat_input("e.g., Explain these columns..."):
                 
             except Exception as e:
                 st.error(f"Error: {e}")
+
