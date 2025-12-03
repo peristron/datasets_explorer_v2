@@ -130,8 +130,8 @@ def scrape_and_save(urls):
     if data:
         df = pd.DataFrame(data)
         df = standardize_columns(df)
-        df['is_primary_key'] = df.get('key','').str.contains('pk', case=False, na=False)
-        df['is_foreign_key'] = df.get('key','').str.contains('fk', case=False, na=False)
+        df['is_primary_key'] = df['key'].astype(str).str.contains('pk', case=False, na=False)
+        df['is_foreign_key'] = df['key'].astype(str).str.contains('fk', case=False, na=False)
         df.to_csv("dataset_metadata.csv", index=False)
 
         st.success(
@@ -299,3 +299,4 @@ if goal and st.button("Generate SQL"):
         st.code(sql.strip("`").strip(), language="sql")
 
 st.caption("Brightspace Dataset Explorer — built for internal use.")
+
