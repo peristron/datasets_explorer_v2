@@ -13,16 +13,14 @@ import re
 import logging
 
 # ========================= CONFIG & LOGGING =========================
-st.set_page_config(page_title="Brightspace Datasets Explorer & AI", layout="wide", page_icon="🕸️")
+st.set_page_config(page_title="Brightspace Explorer & AI", layout="wide", page_icon="🕸️")
 
 logging.basicConfig(filename='scraper.log', filemode='w', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 requests.packages.urllib3.disable_warnings(requests.packages.urllib3.exceptions.InsecureRequestWarning)
 
 # ========================= INITIALIZE SESSION STATE =========================
-if 'total_cost' not in st.session_state:
-    st.session_state['total_cost'] = 0.0
-if 'total_tokens' not in st.session_state:
-    st.session_state['total_tokens'] = 0
+if 'total_cost' not in st.session_state: st.session_state['total_cost'] = 0.0
+if 'total_tokens' not in st.session_state: st.session_state['total_tokens'] = 0
 
 # ========================= PASSWORD PROTECTION =========================
 def check_password():
@@ -46,7 +44,6 @@ check_password()
 
 # ========================= HELPER: CLEAR CALLBACK =========================
 def clear_all_selections():
-    """Callback to clear all selection states safely before rerun."""
     for key in list(st.session_state.keys()):
         if key.startswith("sel_") or key == "global_search":
             st.session_state[key] = []
@@ -186,7 +183,7 @@ else:
     df = pd.DataFrame()
 
 with st.sidebar:
-    st.title("Brightspace Datasets Explorer")
+    st.title("Brightspace Explorer")
     
     # --- USER GUIDE ---
     with st.expander("❓ How to use this app", expanded=False):
@@ -201,7 +198,7 @@ with st.sidebar:
         Select datasets to map relationships.
         
         **4. Ask AI:**
-        Chat with the schema to build complex queries.
+        Toggle 'Include ALL Datasets' to search everything.
         """)
 
     # --- AI Section ---
@@ -211,21 +208,19 @@ with st.sidebar:
             api_key_name = "openai_api_key"
             base_url = None 
             model_name = "gpt-4o"
-            # Approx Pricing (Input / Output per 1M tokens)
             price_in = 2.50
             price_out = 10.00
         else:
             api_key_name = "xai_api_key"
             base_url = "https://api.x.ai/v1"
             model_name = "grok-beta"
-            # Approx Pricing (Estimate)
             price_in = 2.00
             price_out = 8.00
             
         api_key = st.secrets.get(api_key_name)
         if not api_key: api_key = st.text_input(f"Enter {api_key_name}", type="password")
 
-    # --- NEW: COST ESTIMATOR ---
+    # --- COST ESTIMATOR ---
     with st.expander("💰 Cost Estimator", expanded=False):
         st.caption(f"Current Session ({model_name})")
         col_c1, col_c2 = st.columns(2)
@@ -241,7 +236,6 @@ with st.sidebar:
     st.header("1. Search & Select")
     
     if not df.empty:
-        # GLOBAL COLUMN SEARCH
         with st.expander("🔍 Find Datasets by Column Name", expanded=True):
             col_search = st.text_input("Enter column (e.g. OrgUnitId)", placeholder="Type field name...")
             if col_search:
@@ -253,10 +247,8 @@ with st.sidebar:
                 else:
                     st.warning("No matching columns found.")
 
-        # DATASET SELECTOR
         st.subheader("Select Datasets")
         select_mode = st.radio("Method:", ["Category (Grouped)", "List All"], horizontal=True, label_visibility="collapsed")
-
         selected_datasets = []
         
         if select_mode == "Category (Grouped)":
@@ -274,7 +266,6 @@ with st.sidebar:
     # --- Scraper Section ---
     st.divider()
     with st.expander("⚠️ Update Data (Scraper)", expanded=False):
-        # --- DETAILED STATUS INDICATOR ---
         if not df.empty:
             count_ds = df['dataset_name'].nunique()
             count_col = len(df)
@@ -282,10 +273,10 @@ with st.sidebar:
         else:
             st.error("❌ No data found. Please scrape.")
             
-        st.caption("Paste KB article URLs below to update the schema definitions.")
+        st.caption("Paste KB article URLs below.")
         pasted_text = st.text_area("URLs", height=100, value=DEFAULT_URLS)
         
-        if st.button("Scrape URLs", type="primary", help="Click to start the scraping process. Takes about 30-60 seconds."):
+        if st.button("Scrape URLs", type="primary"):
             url_list = parse_urls_from_text_area(pasted_text)
             with st.spinner(f"Scraping {len(url_list)} pages..."):
                 df_new = scrape_and_save_from_list(url_list)
@@ -295,7 +286,7 @@ with st.sidebar:
 
 # ========================= MAIN PAGE CONTENT =========================
 if df.empty:
-    st.title("Brightspace Datasets Explorer")
+    st.title("Brightspace Explorer")
     st.warning("👈 Please use the sidebar 'Update Data' section to scrape data first.")
     st.stop()
 
@@ -357,12 +348,10 @@ if G.number_of_nodes() > 0:
         label_text.append(data.get('label', '?'))
         
     edge_trace = go.Scatter(x=edge_x, y=edge_y, line=dict(width=1, color='#666'), hoverinfo='none', mode='lines')
-    
     label_trace = go.Scatter(
         x=label_x, y=label_y, mode='text', text=label_text,
         textfont=dict(color='#00CCFF', size=11, family="monospace"), hoverinfo='none'
     )
-
     node_x, node_y, node_text, node_color, node_size = [], [], [], [], []
     for node in G.nodes():
         x, y = pos[node]
@@ -372,16 +361,13 @@ if G.number_of_nodes() > 0:
         n_type = G.nodes[node].get('type', 'focus')
         node_color.append('#FF4B4B' if n_type == 'focus' else '#1F77B4')
         node_size.append(25 if n_type == 'focus' else 15)
-
     node_trace = go.Scatter(
         x=node_x, y=node_y, mode='markers+text',
         text=node_text, textposition="top center",
         marker=dict(color=node_color, size=node_size, line=dict(width=2, color='white'))
     )
-
     data_traces = [edge_trace, node_trace]
     if show_edge_labels: data_traces.insert(1, label_trace)
-
     fig = go.Figure(data=data_traces, layout=go.Layout(
         showlegend=False, hovermode='closest', margin=dict(b=0,l=0,r=0,t=0),
         xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
@@ -410,7 +396,6 @@ else:
     sql_lines.append(f"FROM {base_table} {aliases[base_table]}")
     joined_tables = {base_table}
     relevant_edges = [e for e in G.edges(data=True) if e[0] in selected_datasets and e[1] in selected_datasets]
-    
     for u, v, data in relevant_edges:
         col = data.get('label')
         if v not in joined_tables and u in joined_tables:
@@ -419,12 +404,16 @@ else:
         elif u not in joined_tables and v in joined_tables:
             sql_lines.append(f"LEFT JOIN {u} {aliases[u]} ON {aliases[v]}.{col} = {aliases[u]}.{col}")
             joined_tables.add(u)
-            
     st.code("\n".join(sql_lines), language="sql")
 
 # 6. AI Chat
 st.divider()
-st.subheader(f"Ask {ai_provider.split(' ')[0]} about these datasets (will only relate to the datasets you've selected via the sidebar<<<)")
+st.subheader(f"Ask {ai_provider.split(' ')[0]} about your data")
+
+col_chat_opt, col_chat_msg = st.columns([1, 3])
+with col_chat_opt:
+    # === NEW: COST OPTIMIZATION TOGGLE ===
+    use_full_context = st.checkbox("Include ALL Datasets", help="Sends the entire database schema to AI. Higher cost/token usage.", value=False)
 
 if "messages" not in st.session_state: st.session_state.messages = []
 for message in st.session_state.messages:
@@ -440,40 +429,40 @@ if prompt := st.chat_input("e.g., Explain these columns..."):
     with st.chat_message("assistant"):
         with st.spinner("Thinking..."):
             try:
-                context_df = df[df['dataset_name'].isin(selected_datasets)] if selected_datasets else df.head(50)
+                # === COST OPTIMIZATION LOGIC ===
+                if use_full_context:
+                    # Drop heavy description column to save tokens
+                    context_df = df[['dataset_name', 'column_name', 'data_type', 'key']]
+                    scope_msg = "You are viewing the FULL database schema (Descriptions omitted to save space)."
+                else:
+                    # Use full details but only for selected datasets
+                    context_df = df[df['dataset_name'].isin(selected_datasets)] if selected_datasets else df.head(50)
+                    scope_msg = f"You are viewing a SUBSET of {len(selected_datasets)} selected datasets."
+
                 system_msg = f"""
                 You are an expert SQL Data Architect for Brightspace (D2L).
-                IMPORTANT: You are viewing a SUBSET of {len(selected_datasets)} selected datasets.
-                Do not make claims about the TOTAL database based on this subset.
-                Schema Context:
-                {context_df.to_csv(index=False)[:12000]}
+                Context Scope: {scope_msg}
+                Schema Data:
+                {context_df.to_csv(index=False)}
                 """
+                
                 client = openai.OpenAI(api_key=api_key, base_url=base_url)
                 response = client.chat.completions.create(
                     model=model_name,
                     messages=[{"role": "system", "content": system_msg}, {"role": "user", "content": prompt}]
                 )
                 
-                # === TRACK USAGE & COST ===
                 if hasattr(response, 'usage') and response.usage:
                     in_tok = response.usage.prompt_tokens
                     out_tok = response.usage.completion_tokens
-                    # Calculate Cost (Price per 1M tokens)
                     cost = (in_tok * price_in / 1_000_000) + (out_tok * price_out / 1_000_000)
-                    
                     st.session_state['total_tokens'] += (in_tok + out_tok)
                     st.session_state['total_cost'] += cost
                 
                 reply = response.choices[0].message.content
                 st.markdown(reply)
                 st.session_state.messages.append({"role": "assistant", "content": reply})
-                
-                # Force rerun to update Cost in Sidebar immediately
                 st.rerun()
                 
             except Exception as e:
                 st.error(f"Error: {e}")
-
-
-
-
