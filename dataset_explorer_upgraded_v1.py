@@ -216,7 +216,8 @@ with st.sidebar:
                 
         else: # Global Search Mode
             all_ds = sorted(df['dataset_name'].unique())
-            selected_datasets = st.multiselect("Search all datasets:", all_ds)
+            # Key added here so we can target it with Clear All
+            selected_datasets = st.multiselect("Search all datasets:", all_ds, key="global_search")
 
     # --- Scraper Section ---
     st.divider()
@@ -235,14 +236,17 @@ if df.empty:
     st.warning("Please use the sidebar to scrape data first.")
     st.stop()
 
-# Global Clear Button
+# Global Clear Button Logic
 if selected_datasets:
     col_title, col_clear = st.columns([5, 1])
     with col_title:
         st.title(f"Analyzing {len(selected_datasets)} Dataset(s)")
     with col_clear:
-        if st.button("Clear All"):
-            # This is a bit tricky with dynamic keys, easier to just rerun
+        # FIX: Manual clearing of session state
+        if st.button("Clear All", type="primary"):
+            for key in st.session_state.keys():
+                if key.startswith("sel_") or key == "global_search":
+                    st.session_state[key] = []
             st.rerun()
 else:
     st.title("Dataset & Relationship Explorer")
