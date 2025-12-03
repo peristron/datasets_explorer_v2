@@ -18,6 +18,12 @@ st.set_page_config(page_title="Brightspace Explorer & AI", layout="wide", page_i
 logging.basicConfig(filename='scraper.log', filemode='w', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 requests.packages.urllib3.disable_warnings(requests.packages.urllib3.exceptions.InsecureRequestWarning)
 
+# ========================= INITIALIZE SESSION STATE =========================
+if 'total_cost' not in st.session_state:
+    st.session_state['total_cost'] = 0.0
+if 'total_tokens' not in st.session_state:
+    st.session_state['total_tokens'] = 0
+
 # ========================= PASSWORD PROTECTION =========================
 def check_password():
     pwd = st.secrets.get("app_password")
@@ -182,20 +188,20 @@ else:
 with st.sidebar:
     st.title("Brightspace Explorer")
     
-    # --- NEW: USER GUIDE ---
+    # --- USER GUIDE ---
     with st.expander("❓ How to use this app", expanded=False):
         st.markdown("""
         **1. Load Data:** 
-        If you haven't already, open the 'Update Data' section below and click 'Scrape URLs'. This pulls the latest schema from D2L documentation.
+        Use 'Update Data' below to scrape the KB.
         
         **2. Find Datasets:**
-        Use the **Search** box to find a dataset by a specific column name (e.g., `OrgUnitId`), or browse by **Category**.
+        Search by column name or browse by Category.
         
         **3. Visualize:**
-        Select datasets to see their relationships in the Graph view.
+        Select datasets to map relationships.
         
         **4. Ask AI:**
-        Use the chat at the bottom to ask questions about SQL joins or column definitions.
+        Chat with the schema to build complex queries.
         """)
 
     # --- AI Section ---
@@ -205,12 +211,30 @@ with st.sidebar:
             api_key_name = "openai_api_key"
             base_url = None 
             model_name = "gpt-4o"
+            # Approx Pricing (Input / Output per 1M tokens)
+            price_in = 2.50
+            price_out = 10.00
         else:
             api_key_name = "xai_api_key"
             base_url = "https://api.x.ai/v1"
             model_name = "grok-beta"
+            # Approx Pricing (Estimate)
+            price_in = 2.00
+            price_out = 8.00
+            
         api_key = st.secrets.get(api_key_name)
         if not api_key: api_key = st.text_input(f"Enter {api_key_name}", type="password")
+
+    # --- NEW: COST ESTIMATOR ---
+    with st.expander("💰 Cost Estimator", expanded=False):
+        st.caption(f"Current Session ({model_name})")
+        col_c1, col_c2 = st.columns(2)
+        col_c1.metric("Tokens Used", f"{st.session_state['total_tokens']:,}")
+        col_c2.metric("Est. Cost", f"${st.session_state['total_cost']:.4f}")
+        if st.button("Reset Cost"):
+            st.session_state['total_cost'] = 0.0
+            st.session_state['total_tokens'] = 0
+            st.rerun()
 
     # --- SEARCH ---
     st.divider()
@@ -250,9 +274,11 @@ with st.sidebar:
     # --- Scraper Section ---
     st.divider()
     with st.expander("⚠️ Update Data (Scraper)", expanded=False):
-        # --- NEW: STATUS INDICATOR ---
+        # --- DETAILED STATUS INDICATOR ---
         if not df.empty:
-            st.success("✅ Data loaded from cache.")
+            count_ds = df['dataset_name'].nunique()
+            count_col = len(df)
+            st.success(f"✅ Loaded {count_ds} datasets ({count_col:,} columns) from cache.")
         else:
             st.error("❌ No data found. Please scrape.")
             
@@ -427,8 +453,23 @@ if prompt := st.chat_input("e.g., Explain these columns..."):
                     model=model_name,
                     messages=[{"role": "system", "content": system_msg}, {"role": "user", "content": prompt}]
                 )
+                
+                # === TRACK USAGE & COST ===
+                if hasattr(response, 'usage') and response.usage:
+                    in_tok = response.usage.prompt_tokens
+                    out_tok = response.usage.completion_tokens
+                    # Calculate Cost (Price per 1M tokens)
+                    cost = (in_tok * price_in / 1_000_000) + (out_tok * price_out / 1_000_000)
+                    
+                    st.session_state['total_tokens'] += (in_tok + out_tok)
+                    st.session_state['total_cost'] += cost
+                
                 reply = response.choices[0].message.content
                 st.markdown(reply)
                 st.session_state.messages.append({"role": "assistant", "content": reply})
+                
+                # Force rerun to update Cost in Sidebar immediately
+                st.rerun()
+                
             except Exception as e:
                 st.error(f"Error: {e}")
