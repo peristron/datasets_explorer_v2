@@ -39,7 +39,6 @@ def check_password():
 check_password()
 
 # ========================= RESTORED: SCRAPE SUCCESS MESSAGE =========================
-# This must be checked immediately after page load to show the result of the scrape
 if 'scrape_msg' in st.session_state:
     st.success(st.session_state['scrape_msg'])
     del st.session_state['scrape_msg']
@@ -168,13 +167,11 @@ def find_pk_fk_joins(df, selected_datasets):
     return result.drop_duplicates().reset_index(drop=True)
 
 # ========================= SIDEBAR & MAIN LOGIC =========================
-# 1. Load Data
 if os.path.exists('dataset_metadata.csv'):
     df = pd.read_csv('dataset_metadata.csv').fillna('')
 else:
     df = pd.DataFrame()
 
-# 2. Sidebar Construction
 with st.sidebar:
     st.title("Brightspace Explorer")
     
@@ -192,56 +189,51 @@ with st.sidebar:
         api_key = st.secrets.get(api_key_name)
         if not api_key: api_key = st.text_input(f"Enter {api_key_name}", type="password")
 
-    # --- Dataset Selection (Refined) ---
+    # --- SEARCH (NEW FEATURE) ---
     st.divider()
-    st.header("1. Select Datasets")
+    st.header("1. Search & Select")
     
-    if df.empty:
-        st.warning("No data loaded.")
-    else:
-        # Toggle for Selection Method
-        select_mode = st.radio("Find datasets by:", ["Category (Grouped)", "Global Search"], horizontal=True, label_visibility="collapsed")
+    if not df.empty:
+        # GLOBAL COLUMN SEARCH
+        with st.expander("🔍 Find Datasets by Column Name", expanded=True):
+            col_search = st.text_input("Enter column (e.g. OrgUnitId)", placeholder="Type field name...")
+            if col_search:
+                # Case-insensitive search
+                matches = df[df['column_name'].astype(str).str.contains(col_search, case=False)]
+                if not matches.empty:
+                    found_datasets = sorted(matches['dataset_name'].unique())
+                    st.success(f"Found in **{len(found_datasets)}** datasets:")
+                    st.dataframe(found_datasets, hide_index=True, use_container_width=True)
+                else:
+                    st.warning("No matching columns found.")
+
+        # DATASET SELECTOR
+        st.subheader("Select Datasets")
+        select_mode = st.radio("Method:", ["Category (Grouped)", "List All"], horizontal=True, label_visibility="collapsed")
 
         selected_datasets = []
         
         if select_mode == "Category (Grouped)":
-            # Step 1: Filter Categories
             all_cats = sorted(df['category'].unique())
-            selected_cats = st.multiselect("Filter by Category:", all_cats, default=[])
-            
-            # Step 2: Dynamic Dropdowns per Category
+            selected_cats = st.multiselect("Filter Categories:", all_cats, default=[])
             if selected_cats:
-                st.caption("Select datasets from specific categories:")
                 for cat in selected_cats:
                     cat_ds = sorted(df[df['category'] == cat]['dataset_name'].unique())
-                    # Create a unique key per category so selections persist
                     s = st.multiselect(f"📦 {cat}", cat_ds, key=f"sel_{cat}")
                     selected_datasets.extend(s)
-            else:
-                st.info("👆 Select a category to see datasets.")
-                
-        else: # Global Search Mode
+        else: 
             all_ds = sorted(df['dataset_name'].unique())
-            # Key added here so we can target it with Clear All
-            selected_datasets = st.multiselect("Search all datasets:", all_ds, key="global_search")
+            selected_datasets = st.multiselect("Search All:", all_ds, key="global_search")
 
     # --- Scraper Section ---
     st.divider()
     with st.expander("⚠️ Update Data (Scraper)", expanded=False):
-        st.info("Add specific KB article URLs below.")
         pasted_text = st.text_area("URLs", height=100, value=DEFAULT_URLS)
         if st.button("Scrape URLs", type="primary"):
             url_list = parse_urls_from_text_area(pasted_text)
             with st.spinner(f"Scraping {len(url_list)} pages..."):
                 df_new = scrape_and_save_from_list(url_list)
-                
-                # ========================= FIXED: STATS CALCULATION =========================
-                stats_msg = f"""
-                **Scrape Successful!**
-                - **{df_new['category'].nunique()}** Categories
-                - **{df_new['dataset_name'].nunique()}** Datasets
-                - **{len(df_new):,}** Total Columns Processed
-                """
+                stats_msg = f"**Scrape Success:** {df_new['dataset_name'].nunique()} Datasets / {len(df_new):,} Columns"
                 st.session_state['scrape_msg'] = stats_msg
                 st.rerun()
 
@@ -250,7 +242,6 @@ if df.empty:
     st.warning("Please use the sidebar to scrape data first.")
     st.stop()
 
-# Global Clear Button Logic
 if selected_datasets:
     col_title, col_clear = st.columns([5, 1])
     with col_title:
@@ -263,7 +254,7 @@ if selected_datasets:
             st.rerun()
 else:
     st.title("Dataset & Relationship Explorer")
-    st.info("👈 Please select datasets from the sidebar to begin.")
+    st.info("👈 Use the **'Find Datasets by Column'** tool or select datasets to begin.")
     st.stop()
 
 # 3. Data Preview
@@ -383,10 +374,22 @@ if prompt := st.chat_input("e.g., Explain these columns..."):
         with st.spinner("Thinking..."):
             try:
                 context_df = df[df['dataset_name'].isin(selected_datasets)] if selected_datasets else df.head(50)
+                
+                # UPDATED SYSTEM PROMPT TO PREVENT HALLUCINATION
                 system_msg = f"""
-                You are an expert SQL Data Architect for Brightspace.
-                Context: {context_df.to_csv(index=False)[:12000]}
+                You are an expert SQL Data Architect for Brightspace (D2L).
+                
+                IMPORTANT:
+                You have been provided schema context ONLY for the {len(selected_datasets)} datasets the user has explicitly selected.
+                There are ~140 total datasets in the system, but you cannot see them right now.
+                
+                DO NOT make absolute statements like "The total number of datasets with column X is Y" based on this subset.
+                Always clarify: "In the selected datasets, X appears in..."
+                
+                Selected Schema Context:
+                {context_df.to_csv(index=False)[:12000]}
                 """
+                
                 client = openai.OpenAI(api_key=api_key, base_url=base_url)
                 response = client.chat.completions.create(
                     model=model_name,
