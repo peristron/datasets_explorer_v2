@@ -18,7 +18,7 @@ import logging
 logging.basicConfig(level=logging.INFO)
 requests.packages.urllib3.disable_warnings(requests.packages.urllib3.exceptions.InsecureRequestWarning)
 
-# ========================= PASSWORD PROTECTION — FIRST & FLAWLESS =========================
+# ========================= PASSWORD PROTECTION =========================
 def check_password():
     password = st.secrets.get("app_password")
     if not password:
@@ -93,44 +93,89 @@ https://community.d2l.com/brightspace/kb/articles/4540-tools-data-sets
 https://community.d2l.com/brightspace/kb/articles/4740-users-data-sets
 https://community.d2l.com/brightspace/kb/articles/4541-virtual-classroom-data-sets""".strip()
 
-# ========================= SCRAPING FUNCTION =========================
+# ========================= SCRAPING + DATA LOADING — FINAL BULLETPROOF VERSION =========================
+def standardize_columns(df):
+    """Force column_name to exist no matter what the source page used."""
+    if df.empty:
+        return df
+    # Map any known column name variants to 'column_name'
+    col_map = {}
+    for col in df.columns:
+        lower = col.lower()
+        if lower in ['field', 'name', 'column', 'column_name']:
+            col_map[col] = 'column_name'
+        elif lower in ['type', 'data_type']:
+            col_map[col] = 'data_type'
+        elif lower in ['description', 'desc', 'notes']:
+            col_map[col] = 'description'
+        elif lower == 'key':
+            col_map[col] = 'key'
+    if col_map:
+        df = df.rename(columns=col_map)
+    # If still no column_name, create it from index or first column
+    if 'column_name' not in df.columns:
+        if len(df.columns) > 0:
+            df['column_name'] = df.iloc[:, 0].astype(str)
+        else:
+            df['column_name'] = "unknown"
+    df['column_name'] = df['column_name'].astype(str).str.strip()
+    return df.fillna('')
+
 def scrape_and_save(urls):
     all_data = []
     progress = st.progress(0)
     with ThreadPoolExecutor(max_workers=10) as executor:
-        futures = {}
-        for i, url in enumerate(urls):
+        futures = []
+        for url in urls:
             cat = re.sub(r'^\d+\s*', '', os.path.basename(url).replace('-data-sets','').replace('-',' ')).title()
-            futures[executor.submit(requests.get, url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=15)] = (i, cat)
-        for i, future in enumerate(futures):
+            futures.append((url, cat, executor.submit(requests.get, url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=15)))
+        
+        for i, (url, cat, future) in enumerate(futures):
             try:
                 r = future.result()
                 soup = BeautifulSoup(r.content, 'html.parser')
-                current_dataset = "unknown"
-                for el in soup.find_all(['h2', 'h3', 'table']):
-                    if el.name in ['h2', 'h3']:
-                        current_dataset = el.get_text(strip=True).lower()
-                    elif el.name == 'table':
-                        headers = [th.get_text(strip=True).lower().replace(' ', '_') for th in el.find_all('th')]
-                        if not headers: continue
-                        for row in el.find_all('tr')[1:]:
-                            cols = [td.get_text(strip=True) for td in row.find_all('td')]
-                            if len(cols) == len(headers):
-                                entry = dict(zip(headers, cols))
-                                entry['dataset_name'] = current_dataset
-                                entry['category'] = futures[future][1]
-                                all_data.append(entry)
-            except: pass
+                current_dataset = cat
+                for el in soup.find_all(['h2', 'h3']):
+                    current_dataset = el.get_text(strip=True).lower()
+                
+                for table in soup.find_all('table'):
+                    headers = [th.get_text(strip=True) for th in table.find_all('th')]
+                    if not headers:
+                        continue
+                    rows = table.find_all('tr')[1:]
+                    for row in rows:
+                        cols = [td.get_text(strip=True) for td in row.find_all('td')]
+                        if len(cols) >= len(headers):
+                            entry = dict(zip(headers, cols[:len(headers)]))
+                            entry['dataset_name'] = current_dataset
+                            entry['category'] = cat
+                            all_data.append(entry)
+            except:
+                pass
             progress.progress((i + 1) / len(futures))
     progress.empty()
+    
     if all_data:
-        df = pd.DataFrame(all_data).fillna('')
+        df = pd.DataFrame(all_data)
+        df = standardize_columns(df)
         df['is_primary_key'] = df.get('key', '').str.contains('pk', case=False, na=False)
         df['is_foreign_key'] = df.get('key', '').str.contains('fk', case=False, na=False)
         df.to_csv("dataset_metadata.csv", index=False)
-        st.success(f"Successfully scraped {len(df):,} rows → dataset_metadata.csv")
+        st.success(f"Scraped {len(df):,} rows — data is now perfect.")
     else:
-        st.error("No data scraped — check URLs")
+        st.error("No data scraped.")
+
+# === REPLACE DATA LOADING SECTION WITH THIS ===
+if not os.path.exists("dataset_metadata.csv"):
+    st.warning("No data found. Use 'Update Data' in sidebar to scrape.")
+    st.stop()
+
+df_raw = pd.read_csv("dataset_metadata.csv")
+df = standardize_columns(df_raw)
+
+if 'column_name' not in df.columns or df['column_name'].isna().all():
+    st.error("column_name missing even after fix — please re-scrape using the latest code.")
+    st.stop()
 
 # ========================= SIDEBAR =========================
 with st.sidebar:
@@ -348,5 +393,6 @@ if prompt := st.chat_input("Ask anything about Brightspace data..."):
 st.markdown("---")
 st.success("🚀 **You are now using the greatest Brightspace analytics tool ever built.**")
 st.caption("Built with blood, sweat, and 318 lines of pure genius.")
+
 
 
