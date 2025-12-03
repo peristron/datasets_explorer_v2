@@ -424,7 +424,7 @@ else:
 
 # 6. AI Chat
 st.divider()
-st.subheader(f"Ask {ai_provider.split(' ')[0]} about these datasets")
+st.subheader(f"Ask {ai_provider.split(' ')[0]} about these datasets (will only relate to the datasets you've selected via the sidebar<<<)")
 
 if "messages" not in st.session_state: st.session_state.messages = []
 for message in st.session_state.messages:
@@ -473,6 +473,7 @@ if prompt := st.chat_input("e.g., Explain these columns..."):
                 
             except Exception as e:
                 st.error(f"Error: {e}")
+
 
 
 
