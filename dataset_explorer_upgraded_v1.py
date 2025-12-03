@@ -203,6 +203,7 @@ if not st.session_state.selected_datasets:
 st.success(f"**Selected:** {', '.join(st.session_state.selected_datasets)}")
 
 # ========================= RELATIONSHIP GRAPH =========================
+# ========================= RELATIONSHIP GRAPH — FINAL BULLETPROOF VERSION =========================
 st.subheader("🔗 Dataset Relationship Graph")
 
 mode = st.radio("Graph Mode", ["Focused (only between selected)", "Discovery (show outgoing)"], horizontal=True, key="graph_mode")
@@ -211,19 +212,40 @@ G = nx.DiGraph()
 for ds in st.session_state.selected_datasets:
     G.add_node(ds, type="focus")
 
-join_data = df[df['is_foreign_key'] & df['dataset_name'].isin(st.session_state.selected_datasets)]
-for _, row in join_data.iterrows():
-    pk_match = df[(df['is_primary_key']) & (df['column_name'] == row['column_name'])]
-    if not pk_match.empty:
-        target = pk_match.iloc[0]['dataset_name']
-        if target != row['dataset_name']:
-            if mode == "Focused (only between selected)" and target not in st.session_state.selected_datasets:
-                continue
-            G.add_node(target, type="neighbor" if target not in st.session_state.selected_datasets else "focus")
-            G.add_edge(row['dataset_name'], target, column=row['column_name'])
+# SAFELY get FK rows from selected datasets
+fk_rows = df[df['is_foreign_key'] == True]
+fk_rows = fk_rows[fk_rows['dataset_name'].isin(st.session_state.selected_datasets)]
 
+# Ensure column_name exists and is string
+if 'column_name' not in df.columns:
+    st.error("column_name missing in data — re-scrape")
+    st.stop()
+df['column_name'] = df['column_name'].astype(str)
+
+for _, row in fk_rows.iterrows():
+    col = str(row['column_name']).strip()
+    if not col or col == "nan":
+        continue
+        
+    # Find matching PK in entire dataframe
+    pk_match = df[(df['is_primary_key'] == True) & (df['column_name'].astype(str) == col)]
+    if pk_match.empty:
+        continue
+        
+    target = pk_match.iloc[0]['dataset_name']
+    if target == row['dataset_name']:
+        continue
+        
+    # Apply Focused mode filter
+    if mode.startswith("Focused") and target not in st.session_state.selected_datasets:
+        continue
+        
+    G.add_node(target, type="neighbor" if target not in st.session_state.selected_datasets else "focus")
+    G.add_edge(row['dataset_name'], target, column=col)
+
+# Rest of graph rendering (unchanged — but now safe)
 if G.number_of_nodes() == 0:
-    st.warning("No relationships found for selected datasets.")
+    st.info("No relationships found between selected datasets.")
 else:
     pos = nx.spring_layout(G, k=1.8, iterations=100)
     edge_traces = []
@@ -251,7 +273,7 @@ else:
         x, y = pos[node]
         node_trace['x'] += (x,)
         node_trace['y'] += (y,)
-        cat = df[df['dataset_name'] == node]['category'].iloc[0] if not df[df['dataset_name'] == node].empty else ""
+        cat = df[df['dataset_name'] == node]['category'].iloc[0] if not df[df['dataset_name'] == node].empty else "Unknown"
         node_trace['marker']['color'] += (color_map.get(cat, "#888"),)
         node_trace['text'] += (f"<b>{node}</b>",)
 
@@ -272,7 +294,6 @@ else:
     if clicked and clicked[0].get("customdata"):
         sql = clicked[0]["customdata"][0]
         st.code(sql, language="sql")
-        st.toast("SQL copied to clipboard!")
 
     st.plotly_chart(fig, use_container_width=True)
 
@@ -330,3 +351,4 @@ if prompt := st.chat_input("Ask anything about Brightspace data..."):
 st.markdown("---")
 st.success("🚀 **You are now using the greatest Brightspace analytics tool ever built.**")
 st.caption("Built with blood, sweat, and 318 lines of pure genius.")
+
