@@ -18,7 +18,7 @@ st.set_page_config(page_title="Brightspace Explorer & AI", layout="wide", page_i
 logging.basicConfig(filename='scraper.log', filemode='w', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 requests.packages.urllib3.disable_warnings(requests.packages.urllib3.exceptions.InsecureRequestWarning)
 
-# ========================= PASSWORD PROTECTION (ENTER KEY SUPPORT) =========================
+# ========================= PASSWORD PROTECTION =========================
 def check_password():
     """Password protection using a Form to allow 'Enter' key submission."""
     pwd = st.secrets.get("app_password")
@@ -29,7 +29,6 @@ def check_password():
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         st.title("🔐 Login")
-        # Using a form allows the user to hit ENTER to submit
         with st.form("login_form"):
             user_input = st.text_input("Password", type="password", autocomplete="current-password")
             submitted = st.form_submit_button("Submit")
@@ -263,11 +262,18 @@ else:
 
 # 4. Graph Visualization
 if selected_datasets:
-    col_g1, col_g2 = st.columns([3, 1])
-    with col_g1:
+    # FIXED LAYOUT: Use 50/50 split OR move control to radio horizontal to avoid clipping
+    col_header, col_controls = st.columns([1, 1])
+    with col_header:
         st.subheader("Connection Graph")
-    with col_g2:
-        graph_mode = st.selectbox("Graph Mode", ('Between selected (Focused)', 'From selected (Discovery)'))
+    with col_controls:
+        # Horizontal Radio prevents clipping of long text options
+        graph_mode = st.radio(
+            "Graph Mode",
+            options=['Between selected (Focused)', 'From selected (Discovery)'],
+            horizontal=True,
+            label_visibility="visible"
+        )
 
     join_data = find_pk_fk_joins(df, selected_datasets)
     G = nx.DiGraph()
@@ -332,12 +338,12 @@ if selected_datasets:
     
     col_sql1, col_sql2 = st.columns([2,1])
     with col_sql1:
-        st.caption("This generates a JOIN query based on the relationships visible in the 'Focused' graph above.")
+        st.caption("This generates a JOIN query purely based on the scraped metadata relationships (PK/FK matches).")
     
     if len(selected_datasets) < 2:
         st.warning("Please select at least 2 datasets to generate a JOIN query.")
     elif G.number_of_edges() == 0 and graph_mode == 'Between selected (Focused)':
-        st.warning("The selected datasets do not have direct Foreign Key relationships defined in the metadata.")
+        st.warning("The scraped metadata does not contain a direct Primary Key / Foreign Key relationship between your selected datasets.")
     else:
         # Programmatic SQL Generation (No AI Tokens used)
         base_table = selected_datasets[0]
@@ -350,7 +356,6 @@ if selected_datasets:
         sql_lines.append(f"FROM {base_table} {aliases[base_table]}")
         
         # Iterate through edges in the graph to find JOINs
-        # Note: This is a greedy approach. For complex trees, AI is better.
         joined_tables = {base_table}
         
         # Find all edges that exist between selected datasets
@@ -369,7 +374,7 @@ if selected_datasets:
                 
         sql_query = "\n".join(sql_lines)
         st.code(sql_query, language="sql")
-        st.caption("Note: This query assumes standard column matching. Use the AI Chat below for complex logic.")
+        st.caption("Note: This query assumes standard column matching found in the scrape. Use the AI Chat below for complex logic.")
 
 # ========================= AI CHAT INTERFACE =========================
 st.divider()
