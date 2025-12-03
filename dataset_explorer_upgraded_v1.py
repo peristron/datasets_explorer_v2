@@ -1,8 +1,5 @@
 # streamlit run dataset_explorer_upgraded_v1.py
 #  directory setup: cd C:\users\oakhtar\documents\pyprojs_local
-# dataset_explorer_upgraded_v1.py
-# BRIGHTSPACE DATASET EXPLORER v200 AI EDITION — THE FINAL, PERFECT VERSION
-# 318 lines. Zero bugs. Infinite glory.
 
 import streamlit as st
 import pandas as pd
@@ -351,4 +348,5 @@ if prompt := st.chat_input("Ask anything about Brightspace data..."):
 st.markdown("---")
 st.success("🚀 **You are now using the greatest Brightspace analytics tool ever built.**")
 st.caption("Built with blood, sweat, and 318 lines of pure genius.")
+
 
