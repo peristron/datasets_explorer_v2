@@ -38,6 +38,14 @@ def check_password():
 
 check_password()
 
+# ========================= HELPER: CLEAR CALLBACK =========================
+def clear_all_selections():
+    """Callback to clear all selection states safely before rerun."""
+    # We iterate over a list() copy of keys to avoid runtime modification errors
+    for key in list(st.session_state.keys()):
+        if key.startswith("sel_") or key == "global_search":
+            st.session_state[key] = []
+
 # ========================= SCRAPE SUCCESS MESSAGE =========================
 if 'scrape_msg' in st.session_state:
     st.success(st.session_state['scrape_msg'])
@@ -246,11 +254,8 @@ if selected_datasets:
     with col_title:
         st.title(f"Analyzing {len(selected_datasets)} Dataset(s)")
     with col_clear:
-        if st.button("Clear All", type="primary"):
-            for key in st.session_state.keys():
-                if key.startswith("sel_") or key == "global_search":
-                    st.session_state[key] = []
-            st.rerun()
+        # FIX: Use callback function to avoid Streamlit API Exception
+        st.button("Clear All", type="primary", on_click=clear_all_selections)
 else:
     st.title("Dataset & Relationship Explorer")
     st.info("👈 Use the **'Find Datasets by Column'** tool or select datasets to begin.")
@@ -289,10 +294,9 @@ else:
                 G.add_edge(s, t, label=row['Join Column'])
 
 if G.number_of_nodes() > 0:
-    pos = nx.spring_layout(G, k=0.7, iterations=60) # Increased k for spacing
+    pos = nx.spring_layout(G, k=0.7, iterations=60)
     edge_x, edge_y = [], []
     
-    # Arrays for Edge Labels
     label_x = []
     label_y = []
     label_text = []
@@ -303,19 +307,17 @@ if G.number_of_nodes() > 0:
         edge_x.extend([x0, x1, None])
         edge_y.extend([y0, y1, None])
         
-        # Calculate Midpoint for Label
         label_x.append((x0 + x1) / 2)
         label_y.append((y0 + y1) / 2)
         label_text.append(data.get('label', '?'))
         
     edge_trace = go.Scatter(x=edge_x, y=edge_y, line=dict(width=1, color='#666'), hoverinfo='none', mode='lines')
     
-    # NEW: Trace for the text labels on lines
     label_trace = go.Scatter(
         x=label_x, y=label_y, 
         mode='text', 
         text=label_text,
-        textfont=dict(color='#00CCFF', size=11, family="monospace"), # Cyan text
+        textfont=dict(color='#00CCFF', size=11, family="monospace"),
         hoverinfo='none'
     )
 
@@ -337,7 +339,7 @@ if G.number_of_nodes() > 0:
 
     data_traces = [edge_trace, node_trace]
     if show_edge_labels:
-        data_traces.insert(1, label_trace) # Add labels if checkbox is checked
+        data_traces.insert(1, label_trace)
 
     fig = go.Figure(data=data_traces, layout=go.Layout(
         showlegend=False, hovermode='closest', margin=dict(b=0,l=0,r=0,t=0),
