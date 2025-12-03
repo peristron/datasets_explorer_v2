@@ -157,25 +157,28 @@ def call_llm(messages, api_key, base_url, model):
 
 # ========================= PASSWORD PROTECTION =========================
 def check_password():
+    """Returns True only if password is correct or not set."""
     password = st.secrets.get("app_password")
-    if not password:
+    if not password:  # No password set → open access
         return True
 
-    def password_entered():
-        if st.session_state.get("password_input", "") == password:
+    # If already authenticated this session, skip prompt
+    if st.session_state.get("authenticated", False):
+        return True
+
+    # Show password prompt
+    st.text_input("Password", type="password", key="password_input")
+    
+    # Check only if user actually submitted something
+    if "password_input" in st.session_state:
+        if st.session_state["password_input"] == password:
             st.session_state["authenticated"] = True
+            st.rerun()
         else:
-            st.session_state["authenticated"] = False
-
-    if "authenticated" not in st.session_state:
-        st.session_state["authenticated"] = False
-
-    if not st.session_state["authenticated"]:
-        st.text_input("Password", type="password", key="password_input", on_change=password_entered)
-        if not st.session_state["authenticated"]:
             st.error("Incorrect password")
-        st.stop()
-    return True
+            return False
+    else:
+        st.stop()  # Wait for input
 
 # ========================= MAIN APP =========================
 def main():
@@ -329,3 +332,4 @@ def main():
 if __name__ == "__main__":
     if check_password():
         main()
+
