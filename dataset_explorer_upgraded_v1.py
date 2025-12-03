@@ -13,7 +13,7 @@ import re
 import logging
 
 # ========================= CONFIG & LOGGING =========================
-st.set_page_config(page_title="Brightspace Explorer & AI", layout="wide", page_icon="🕸️")
+st.set_page_config(page_title="Brightspace Datasets Explorer & AI", layout="wide", page_icon="🕸️")
 
 logging.basicConfig(filename='scraper.log', filemode='w', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 requests.packages.urllib3.disable_warnings(requests.packages.urllib3.exceptions.InsecureRequestWarning)
@@ -295,7 +295,7 @@ with st.sidebar:
 
 # ========================= MAIN PAGE CONTENT =========================
 if df.empty:
-    st.title("Brightspace Explorer")
+    st.title("Brightspace Datasets Explorer")
     st.warning("👈 Please use the sidebar 'Update Data' section to scrape data first.")
     st.stop()
 
@@ -473,4 +473,5 @@ if prompt := st.chat_input("e.g., Explain these columns..."):
                 
             except Exception as e:
                 st.error(f"Error: {e}")
+
 
