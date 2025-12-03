@@ -38,6 +38,12 @@ def check_password():
 
 check_password()
 
+# ========================= RESTORED: SCRAPE SUCCESS MESSAGE =========================
+# This must be checked immediately after page load to show the result of the scrape
+if 'scrape_msg' in st.session_state:
+    st.success(st.session_state['scrape_msg'])
+    del st.session_state['scrape_msg']
+
 # ========================= DEFAULT URLs =========================
 DEFAULT_URLS = """
 https://community.d2l.com/brightspace/kb/articles/4752-accommodations-data-sets
@@ -228,7 +234,15 @@ with st.sidebar:
             url_list = parse_urls_from_text_area(pasted_text)
             with st.spinner(f"Scraping {len(url_list)} pages..."):
                 df_new = scrape_and_save_from_list(url_list)
-                st.success(f"Scraped {len(df_new)} rows! Reloading...")
+                
+                # ========================= FIXED: STATS CALCULATION =========================
+                stats_msg = f"""
+                **Scrape Successful!**
+                - **{df_new['category'].nunique()}** Categories
+                - **{df_new['dataset_name'].nunique()}** Datasets
+                - **{len(df_new):,}** Total Columns Processed
+                """
+                st.session_state['scrape_msg'] = stats_msg
                 st.rerun()
 
 # ========================= MAIN PAGE CONTENT =========================
@@ -242,7 +256,6 @@ if selected_datasets:
     with col_title:
         st.title(f"Analyzing {len(selected_datasets)} Dataset(s)")
     with col_clear:
-        # FIX: Manual clearing of session state
         if st.button("Clear All", type="primary"):
             for key in st.session_state.keys():
                 if key.startswith("sel_") or key == "global_search":
