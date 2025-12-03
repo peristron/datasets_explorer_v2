@@ -128,6 +128,8 @@ def scrape_table(url, category_name):
                     if 'column_name' in entry and entry['column_name']:
                         entry['dataset_name'] = current_dataset
                         entry['category'] = category_name
+                        # === ADDED: Save URL to data ===
+                        entry['url'] = url 
                         data.append(entry)
         return data
     except Exception: return []
@@ -152,7 +154,7 @@ def scrape_and_save_from_list(url_list):
     if not all_data: return pd.DataFrame()
 
     df = pd.DataFrame(all_data)
-    expected_cols = ['category', 'dataset_name', 'column_name', 'data_type', 'description', 'key']
+    expected_cols = ['category', 'dataset_name', 'column_name', 'data_type', 'description', 'key', 'url']
     for col in expected_cols:
         if col not in df.columns: df[col] = ''
     df = df.fillna('')
@@ -189,7 +191,7 @@ with st.sidebar:
     with st.expander("❓ How to use this app", expanded=False):
         st.markdown("""
         **1. Load Data:** 
-        Use 'Update Data' below to scrape the KB.
+        Use 'Update Data' below to scrape the KB. **(Do this first to get URLs!)**
         
         **2. Find Datasets:**
         Search by column name or browse by Category.
@@ -223,9 +225,12 @@ with st.sidebar:
     # --- COST ESTIMATOR ---
     with st.expander("💰 Cost Estimator", expanded=False):
         st.caption(f"Current Session ({model_name})")
-        col_c1, col_c2 = st.columns(2)
-        col_c1.metric("Tokens Used", f"{st.session_state['total_tokens']:,}")
-        col_c2.metric("Est. Cost", f"${st.session_state['total_cost']:.4f}")
+        
+        # Using standard markdown/text to ensure precision isn't truncated
+        c1, c2 = st.columns(2)
+        c1.markdown(f"**Tokens:**\n{st.session_state['total_tokens']:,}")
+        c2.markdown(f"**Cost:**\n`${st.session_state['total_cost']:.5f}`")
+        
         if st.button("Reset Cost"):
             st.session_state['total_cost'] = 0.0
             st.session_state['total_tokens'] = 0
@@ -304,7 +309,10 @@ else:
 # 3. Data Preview
 with st.expander("📋 View Schema Details", expanded=False):
     subset = df[df['dataset_name'].isin(selected_datasets)]
-    st.dataframe(subset[['dataset_name', 'column_name', 'data_type', 'description', 'key']], use_container_width=True, hide_index=True)
+    # Added 'url' to preview to confirm it exists
+    cols_to_show = ['dataset_name', 'column_name', 'data_type', 'description', 'key']
+    if 'url' in subset.columns: cols_to_show.append('url')
+    st.dataframe(subset[cols_to_show], use_container_width=True, hide_index=True)
 
 # 4. Graph Visualization
 col_header, col_controls = st.columns([1, 1])
@@ -412,7 +420,6 @@ st.subheader(f"Ask {ai_provider.split(' ')[0]} about your data")
 
 col_chat_opt, col_chat_msg = st.columns([1, 3])
 with col_chat_opt:
-    # === NEW: COST OPTIMIZATION TOGGLE ===
     use_full_context = st.checkbox("Include ALL Datasets", help="Sends the entire database schema to AI. Higher cost/token usage.", value=False)
 
 if "messages" not in st.session_state: st.session_state.messages = []
@@ -429,19 +436,27 @@ if prompt := st.chat_input("e.g., Explain these columns..."):
     with st.chat_message("assistant"):
         with st.spinner("Thinking..."):
             try:
-                # === COST OPTIMIZATION LOGIC ===
                 if use_full_context:
-                    # Drop heavy description column to save tokens
-                    context_df = df[['dataset_name', 'column_name', 'data_type', 'key']]
-                    scope_msg = "You are viewing the FULL database schema (Descriptions omitted to save space)."
+                    # === CHANGED: Include 'url' in full context ===
+                    context_df = df[['dataset_name', 'column_name', 'data_type', 'key', 'url']]
+                    scope_msg = "You are viewing the FULL database schema."
                 else:
-                    # Use full details but only for selected datasets
-                    context_df = df[df['dataset_name'].isin(selected_datasets)] if selected_datasets else df.head(50)
+                    # === CHANGED: Include 'url' in subset context ===
+                    cols_needed = ['dataset_name', 'column_name', 'data_type', 'description', 'key', 'url']
+                    # Handle case where user hasn't re-scraped yet
+                    if 'url' not in df.columns: cols_needed.remove('url')
+                    
+                    context_df = df[df['dataset_name'].isin(selected_datasets)][cols_needed] if selected_datasets else df.head(50)
                     scope_msg = f"You are viewing a SUBSET of {len(selected_datasets)} selected datasets."
 
                 system_msg = f"""
                 You are an expert SQL Data Architect for Brightspace (D2L).
                 Context Scope: {scope_msg}
+                
+                INSTRUCTIONS:
+                1. If you mention a dataset, you MUST provide its Source URL if available in the 'url' column.
+                2. Format links as: [Dataset Name](URL)
+                
                 Schema Data:
                 {context_df.to_csv(index=False)}
                 """
