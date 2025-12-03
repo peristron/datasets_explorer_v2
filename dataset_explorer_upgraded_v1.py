@@ -41,7 +41,6 @@ check_password()
 # ========================= HELPER: CLEAR CALLBACK =========================
 def clear_all_selections():
     """Callback to clear all selection states safely before rerun."""
-    # We iterate over a list() copy of keys to avoid runtime modification errors
     for key in list(st.session_state.keys()):
         if key.startswith("sel_") or key == "global_search":
             st.session_state[key] = []
@@ -183,6 +182,22 @@ else:
 with st.sidebar:
     st.title("Brightspace Explorer")
     
+    # --- NEW: USER GUIDE ---
+    with st.expander("❓ How to use this app", expanded=False):
+        st.markdown("""
+        **1. Load Data:** 
+        If you haven't already, open the 'Update Data' section below and click 'Scrape URLs'. This pulls the latest schema from D2L documentation.
+        
+        **2. Find Datasets:**
+        Use the **Search** box to find a dataset by a specific column name (e.g., `OrgUnitId`), or browse by **Category**.
+        
+        **3. Visualize:**
+        Select datasets to see their relationships in the Graph view.
+        
+        **4. Ask AI:**
+        Use the chat at the bottom to ask questions about SQL joins or column definitions.
+        """)
+
     # --- AI Section ---
     with st.expander("🤖 AI Settings", expanded=False):
         ai_provider = st.radio("Provider", ["OpenAI (GPT-4o)", "xAI (Grok)"])
@@ -235,8 +250,16 @@ with st.sidebar:
     # --- Scraper Section ---
     st.divider()
     with st.expander("⚠️ Update Data (Scraper)", expanded=False):
+        # --- NEW: STATUS INDICATOR ---
+        if not df.empty:
+            st.success("✅ Data loaded from cache.")
+        else:
+            st.error("❌ No data found. Please scrape.")
+            
+        st.caption("Paste KB article URLs below to update the schema definitions.")
         pasted_text = st.text_area("URLs", height=100, value=DEFAULT_URLS)
-        if st.button("Scrape URLs", type="primary"):
+        
+        if st.button("Scrape URLs", type="primary", help="Click to start the scraping process. Takes about 30-60 seconds."):
             url_list = parse_urls_from_text_area(pasted_text)
             with st.spinner(f"Scraping {len(url_list)} pages..."):
                 df_new = scrape_and_save_from_list(url_list)
@@ -246,7 +269,8 @@ with st.sidebar:
 
 # ========================= MAIN PAGE CONTENT =========================
 if df.empty:
-    st.warning("Please use the sidebar to scrape data first.")
+    st.title("Brightspace Explorer")
+    st.warning("👈 Please use the sidebar 'Update Data' section to scrape data first.")
     st.stop()
 
 if selected_datasets:
@@ -254,7 +278,6 @@ if selected_datasets:
     with col_title:
         st.title(f"Analyzing {len(selected_datasets)} Dataset(s)")
     with col_clear:
-        # FIX: Use callback function to avoid Streamlit API Exception
         st.button("Clear All", type="primary", on_click=clear_all_selections)
 else:
     st.title("Dataset & Relationship Explorer")
@@ -296,17 +319,13 @@ else:
 if G.number_of_nodes() > 0:
     pos = nx.spring_layout(G, k=0.7, iterations=60)
     edge_x, edge_y = [], []
-    
-    label_x = []
-    label_y = []
-    label_text = []
+    label_x, label_y, label_text = [], [], []
 
     for u, v, data in G.edges(data=True):
         x0, y0 = pos[u]
         x1, y1 = pos[v]
         edge_x.extend([x0, x1, None])
         edge_y.extend([y0, y1, None])
-        
         label_x.append((x0 + x1) / 2)
         label_y.append((y0 + y1) / 2)
         label_text.append(data.get('label', '?'))
@@ -314,11 +333,8 @@ if G.number_of_nodes() > 0:
     edge_trace = go.Scatter(x=edge_x, y=edge_y, line=dict(width=1, color='#666'), hoverinfo='none', mode='lines')
     
     label_trace = go.Scatter(
-        x=label_x, y=label_y, 
-        mode='text', 
-        text=label_text,
-        textfont=dict(color='#00CCFF', size=11, family="monospace"),
-        hoverinfo='none'
+        x=label_x, y=label_y, mode='text', text=label_text,
+        textfont=dict(color='#00CCFF', size=11, family="monospace"), hoverinfo='none'
     )
 
     node_x, node_y, node_text, node_color, node_size = [], [], [], [], []
@@ -338,8 +354,7 @@ if G.number_of_nodes() > 0:
     )
 
     data_traces = [edge_trace, node_trace]
-    if show_edge_labels:
-        data_traces.insert(1, label_trace)
+    if show_edge_labels: data_traces.insert(1, label_trace)
 
     fig = go.Figure(data=data_traces, layout=go.Layout(
         showlegend=False, hovermode='closest', margin=dict(b=0,l=0,r=0,t=0),
