@@ -15,33 +15,36 @@ import logging
 # ========================= CONFIG & LOGGING =========================
 st.set_page_config(page_title="Brightspace Explorer & AI", layout="wide", page_icon="🕸️")
 
-# Logging Setup
 logging.basicConfig(filename='scraper.log', filemode='w', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 requests.packages.urllib3.disable_warnings(requests.packages.urllib3.exceptions.InsecureRequestWarning)
 
-# ========================= PASSWORD PROTECTION =========================
+# ========================= PASSWORD PROTECTION (ENTER KEY SUPPORT) =========================
 def check_password():
-    """Simple password protection."""
+    """Password protection using a Form to allow 'Enter' key submission."""
     pwd = st.secrets.get("app_password")
-    if not pwd: return True # Allow if no password set in secrets
+    if not pwd: return True 
     
     if st.session_state.get("authenticated", False): return True
     
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        st.title("Login")
-        user_input = st.text_input("Password", type="password", key="pw_input")
-        if st.button("Submit", type="primary"):
-            if user_input == pwd:
-                st.session_state.authenticated = True
-                st.rerun()
-            else:
-                st.error("Incorrect password")
+        st.title("🔐 Login")
+        # Using a form allows the user to hit ENTER to submit
+        with st.form("login_form"):
+            user_input = st.text_input("Password", type="password", autocomplete="current-password")
+            submitted = st.form_submit_button("Submit")
+            
+            if submitted:
+                if user_input == pwd:
+                    st.session_state.authenticated = True
+                    st.rerun()
+                else:
+                    st.error("Incorrect password")
     st.stop()
 
 check_password()
 
-# ========================= DEFAULT URLs (FULL LIST) =========================
+# ========================= DEFAULT URLs =========================
 DEFAULT_URLS = """
 https://community.d2l.com/brightspace/kb/articles/4752-accommodations-data-sets
 https://community.d2l.com/brightspace/kb/articles/4712-activity-feed-data-sets
@@ -83,14 +86,14 @@ https://community.d2l.com/brightspace/kb/articles/4740-users-data-sets
 https://community.d2l.com/brightspace/kb/articles/4541-virtual-classroom-data-sets
 """.strip()
 
-# ========================= SCRAPING FUNCTIONS =========================
+# ========================= SCRAPING LOGIC =========================
 def parse_urls_from_text_area(text_block):
     urls = [line.strip() for line in text_block.split('\n') if line.strip()]
     valid_urls = [url for url in urls if url.startswith('http')]
     return sorted(list(set(valid_urls)))
 
 def scrape_table(url, category_name):
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+    headers = {'User-Agent': 'Mozilla/5.0'}
     try:
         response = requests.get(url, headers=headers, timeout=15, verify=False)
         if response.status_code != 200: return []
@@ -103,26 +106,24 @@ def scrape_table(url, category_name):
         for element in elements:
             if element.name in ['h2', 'h3']: 
                 text = element.text.strip()
-                if len(text) > 3: # Filter out empty/tiny headers
+                if len(text) > 3: 
                     current_dataset = text.lower()
             elif element.name == 'table':
                 table_headers = [th.text.strip().lower().replace(' ', '_') for th in element.find_all('th')]
                 if not table_headers: continue
                 
-                # Heuristic: Only scrape tables that look like data definitions
                 if not any(x in table_headers for x in ['type', 'description', 'data_type']):
                     continue
 
                 for row in element.find_all('tr'):
                     columns_ = row.find_all('td')
-                    if len(columns_) < len(table_headers): continue # Skip malformed rows
+                    if len(columns_) < len(table_headers): continue 
                     
                     entry = {}
                     for i, header in enumerate(table_headers):
                         if i < len(columns_):
                             entry[header] = columns_[i].text.strip()
                             
-                    # Standardize keys
                     header_map = {'field': 'column_name', 'name': 'column_name', 'type': 'data_type'}
                     entry = {header_map.get(k, k): v for k, v in entry.items()}
                     
@@ -133,12 +134,11 @@ def scrape_table(url, category_name):
                     data.append(entry)
         return data
     except Exception as e:
-        logging.error(f"Error scraping page {url}: {e}")
         return []
 
 def scrape_and_save_from_list(url_list):
     all_data = []
-    progress_bar = st.progress(0, "Scraping dataset pages...")
+    progress_bar = st.progress(0, "Initializing Scraper...")
     
     def get_category_from_url(url):
         return re.sub(r'^\d+\s*', '', os.path.basename(url).split('?')[0].replace('-data-sets', '').replace('-', ' ')).lower()
@@ -152,21 +152,19 @@ def scrape_and_save_from_list(url_list):
                 all_data.extend(result)
             except Exception:
                 pass
-            progress_bar.progress((i + 1) / len(url_list), f"Scraping... {i+1}/{len(url_list)}")
+            progress_bar.progress((i + 1) / len(url_list), f"Scraping page {i+1} of {len(url_list)}...")
     
     progress_bar.empty()
+    
     if not all_data:
         return pd.DataFrame()
 
     df = pd.DataFrame(all_data)
-    
-    # Ensure columns exist
     expected_cols = ['category', 'dataset_name', 'column_name', 'data_type', 'description', 'key']
     for col in expected_cols:
         if col not in df.columns: df[col] = ''
         
     df = df.fillna('')
-    # Normalize dataset names
     df['dataset_name'] = df['dataset_name'].astype(str).str.title()
     df['category'] = df['category'].astype(str).str.title()
     
@@ -180,13 +178,11 @@ def scrape_and_save_from_list(url_list):
 def find_pk_fk_joins(df, selected_datasets):
     if df.empty or not selected_datasets: return pd.DataFrame()
     
-    # Exact match logic
     pks = df[df['is_primary_key'] == True]
     fks = df[(df['is_foreign_key'] == True) & (df['dataset_name'].isin(selected_datasets))]
     
     if pks.empty or fks.empty: return pd.DataFrame()
     
-    # Join on column name
     merged = pd.merge(fks, pks, on='column_name', suffixes=('_fk', '_pk'))
     joins = merged[merged['dataset_name_fk'] != merged['dataset_name_pk']]
     
@@ -200,14 +196,12 @@ def find_pk_fk_joins(df, selected_datasets):
 with st.sidebar:
     st.title("Brightspace Explorer")
     
-    # --- AI Section ---
+    # AI Configuration
     with st.expander("🤖 AI Configuration", expanded=True):
         ai_provider = st.radio("AI Provider", ["OpenAI (GPT-4o)", "xAI (Grok)"])
-        
-        # Set Keys and Base URLs based on selection
         if "OpenAI" in ai_provider:
             api_key_name = "openai_api_key"
-            base_url = None # Default for OpenAI
+            base_url = None 
             model_name = "gpt-4o"
         else:
             api_key_name = "xai_api_key"
@@ -218,78 +212,76 @@ with st.sidebar:
         if not api_key:
             api_key = st.text_input(f"Enter {api_key_name}", type="password")
 
-    # --- Scraper Section ---
+    # Scraper Section
     with st.expander("⚠️ Update Data Source", expanded=False):
-        st.info("Add specific KB article URLs below.")
-        pasted_text = st.text_area("URLs", height=150, value=DEFAULT_URLS)
+        st.info("Paste KB Article URLs below.")
+        pasted_text = st.text_area("URLs", height=100, value=DEFAULT_URLS)
         if st.button("Scrape All URLs", type="primary"):
             url_list = parse_urls_from_text_area(pasted_text)
             with st.spinner(f"Scraping {len(url_list)} pages..."):
-                scrape_and_save_from_list(url_list)
-                st.success("Done! Reloading...")
+                df_new = scrape_and_save_from_list(url_list)
+                # CALCULATE STATS FOR FEEDBACK
+                stats_msg = f"""
+                **Scrape Successful!**
+                - **{df_new['category'].nunique()}** Categories
+                - **{df_new['dataset_name'].nunique()}** Datasets
+                - **{len(df_new):,}** Total Columns Processed
+                """
+                st.session_state['scrape_success'] = stats_msg
                 st.rerun()
 
 # ========================= MAIN UI =========================
+
+# 0. Show Scrape Success Message if just ran
+if 'scrape_success' in st.session_state:
+    st.success(st.session_state['scrape_success'])
+    del st.session_state['scrape_success']
 
 # 1. Load Data
 if os.path.exists('dataset_metadata.csv'):
     df = pd.read_csv('dataset_metadata.csv').fillna('')
 else:
-    st.warning("No data found. Please click 'Scrape All URLs' in the sidebar.")
+    st.warning("No data found. Please use the sidebar to scrape data.")
     st.stop()
 
 # 2. Filtering
 st.sidebar.subheader("Dataset Selection")
 categories = sorted(df['category'].unique())
 selected_categories = st.sidebar.multiselect("Filter Category", categories)
-
 available_datasets = df[df['category'].isin(selected_categories)]['dataset_name'].unique() if selected_categories else df['dataset_name'].unique()
 selected_datasets = st.sidebar.multiselect("Select Datasets", sorted(available_datasets))
 
 st.title("Dataset & Relationship Explorer")
 
-# 3. Display Data Details
+# 3. Data Preview
 if selected_datasets:
     with st.expander("Dataset Schema Details", expanded=False):
         subset = df[df['dataset_name'].isin(selected_datasets)]
-        # Prioritize columns
-        cols = [c for c in ['dataset_name', 'column_name', 'data_type', 'description', 'key'] if c in subset.columns]
-        st.dataframe(subset[cols], use_container_width=True, hide_index=True)
+        st.dataframe(subset[['dataset_name', 'column_name', 'data_type', 'description', 'key']], use_container_width=True, hide_index=True)
 else:
     st.info("Select datasets from the sidebar to begin.")
 
 # 4. Graph Visualization
 if selected_datasets:
-    st.subheader("Connection Graph")
-    
-    graph_mode = st.radio(
-        "Graph Mode:",
-        ('Between selected (Focused)', 'From selected (Discovery)'),
-        horizontal=True
-    )
-    
-    # Graph Styling Controls
-    col1, col2 = st.columns(2)
-    with col1:
-        node_separation = st.slider("Spread", 0.1, 2.0, 0.5)
-    with col2:
-        show_labels = st.checkbox("Show Edge Labels (Slower)", False)
+    col_g1, col_g2 = st.columns([3, 1])
+    with col_g1:
+        st.subheader("Connection Graph")
+    with col_g2:
+        graph_mode = st.selectbox("Graph Mode", ('Between selected (Focused)', 'From selected (Discovery)'))
 
     join_data = find_pk_fk_joins(df, selected_datasets)
     G = nx.DiGraph()
     
-    # Logic to build nodes/edges
+    # Build Graph Nodes/Edges
     if graph_mode == 'Between selected (Focused)':
-        for ds in selected_datasets:
-            G.add_node(ds, type='focus')
+        for ds in selected_datasets: G.add_node(ds, type='focus')
         if not join_data.empty:
             for _, row in join_data.iterrows():
                 s, t = row['Source Dataset'], row['Target Dataset']
                 if s in selected_datasets and t in selected_datasets:
                     G.add_edge(s, t, label=row['Join Column'])
     else:
-        for ds in selected_datasets:
-            G.add_node(ds, type='focus')
+        for ds in selected_datasets: G.add_node(ds, type='focus')
         if not join_data.empty:
             for _, row in join_data.iterrows():
                 s, t = row['Source Dataset'], row['Target Dataset']
@@ -297,11 +289,8 @@ if selected_datasets:
                     if not G.has_node(t): G.add_node(t, type='neighbor')
                     G.add_edge(s, t, label=row['Join Column'])
 
-    # Render
     if G.number_of_nodes() > 0:
-        pos = nx.spring_layout(G, k=node_separation, iterations=50)
-        
-        # 1. Edges (Optimized: Single Trace)
+        pos = nx.spring_layout(G, k=0.6, iterations=50)
         edge_x, edge_y = [], []
         for u, v in G.edges():
             x0, y0 = pos[u]
@@ -309,32 +298,8 @@ if selected_datasets:
             edge_x.extend([x0, x1, None])
             edge_y.extend([y0, y1, None])
             
-        edge_trace = go.Scatter(
-            x=edge_x, y=edge_y, 
-            line=dict(width=1, color='#666'), 
-            hoverinfo='none', 
-            mode='lines'
-        )
+        edge_trace = go.Scatter(x=edge_x, y=edge_y, line=dict(width=1, color='#666'), hoverinfo='none', mode='lines')
         
-        traces = [edge_trace]
-
-        # 2. Edge Labels (Optional - slower)
-        if show_labels:
-            label_x, label_y, label_text = [], [], []
-            for u, v, data in G.edges(data=True):
-                x0, y0 = pos[u]
-                x1, y1 = pos[v]
-                label_x.append((x0+x1)/2)
-                label_y.append((y0+y1)/2)
-                label_text.append(data.get('label',''))
-            
-            label_trace = go.Scatter(
-                x=label_x, y=label_y, mode='text', text=label_text,
-                textfont=dict(color='cyan', size=10), hoverinfo='none'
-            )
-            traces.append(label_trace)
-
-        # 3. Nodes
         node_x, node_y, node_text, node_color, node_size = [], [], [], [], []
         for node in G.nodes():
             x, y = pos[node]
@@ -343,27 +308,68 @@ if selected_datasets:
             node_text.append(node)
             n_type = G.nodes[node].get('type', 'focus')
             node_color.append('#FF4B4B' if n_type == 'focus' else '#1F77B4')
-            node_size.append(30 if n_type == 'focus' else 15)
+            node_size.append(25 if n_type == 'focus' else 15)
 
         node_trace = go.Scatter(
             x=node_x, y=node_y, mode='markers+text',
             text=node_text, textposition="top center",
             marker=dict(color=node_color, size=node_size, line=dict(width=2, color='white'))
         )
-        traces.append(node_trace)
 
-        fig = go.Figure(data=traces, layout=go.Layout(
-            showlegend=False, hovermode='closest',
-            margin=dict(b=0,l=0,r=0,t=0),
+        fig = go.Figure(data=[edge_trace, node_trace], layout=go.Layout(
+            showlegend=False, hovermode='closest', margin=dict(b=0,l=0,r=0,t=0),
             xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
             yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-            height=600,
-            paper_bgcolor='rgba(0,0,0,0)',
-            plot_bgcolor='rgba(0,0,0,0)'
+            height=550, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)'
         ))
         st.plotly_chart(fig, use_container_width=True)
     else:
         st.info("No relationships found.")
+
+    # ========================= 5. AUTO-SQL GENERATOR =========================
+    st.divider()
+    st.subheader("⚡ Instant SQL Builder")
+    
+    col_sql1, col_sql2 = st.columns([2,1])
+    with col_sql1:
+        st.caption("This generates a JOIN query based on the relationships visible in the 'Focused' graph above.")
+    
+    if len(selected_datasets) < 2:
+        st.warning("Please select at least 2 datasets to generate a JOIN query.")
+    elif G.number_of_edges() == 0 and graph_mode == 'Between selected (Focused)':
+        st.warning("The selected datasets do not have direct Foreign Key relationships defined in the metadata.")
+    else:
+        # Programmatic SQL Generation (No AI Tokens used)
+        base_table = selected_datasets[0]
+        # Simple aliasing logic
+        aliases = {name: f"t{i+1}" for i, name in enumerate(selected_datasets)}
+        
+        sql_lines = [f"SELECT TOP 100"]
+        # Add columns from base table
+        sql_lines.append(f"    {aliases[base_table]}.*")
+        sql_lines.append(f"FROM {base_table} {aliases[base_table]}")
+        
+        # Iterate through edges in the graph to find JOINs
+        # Note: This is a greedy approach. For complex trees, AI is better.
+        joined_tables = {base_table}
+        
+        # Find all edges that exist between selected datasets
+        relevant_edges = [e for e in G.edges(data=True) if e[0] in selected_datasets and e[1] in selected_datasets]
+        
+        for u, v, data in relevant_edges:
+            col = data.get('label')
+            # If we haven't joined the target yet, join it
+            if v not in joined_tables and u in joined_tables:
+                sql_lines.append(f"LEFT JOIN {v} {aliases[v]} ON {aliases[u]}.{col} = {aliases[v]}.{col}")
+                joined_tables.add(v)
+            # If source isn't joined but target is (reverse join), handle it
+            elif u not in joined_tables and v in joined_tables:
+                sql_lines.append(f"LEFT JOIN {u} {aliases[u]} ON {aliases[v]}.{col} = {aliases[u]}.{col}")
+                joined_tables.add(u)
+                
+        sql_query = "\n".join(sql_lines)
+        st.code(sql_query, language="sql")
+        st.caption("Note: This query assumes standard column matching. Use the AI Chat below for complex logic.")
 
 # ========================= AI CHAT INTERFACE =========================
 st.divider()
@@ -376,7 +382,7 @@ for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-if prompt := st.chat_input("How do I join users and grades?"):
+if prompt := st.chat_input("e.g., Write a query to find students who failed a quiz"):
     if not api_key:
         st.error(f"Please enter your {ai_provider} API Key in the sidebar.")
         st.stop()
@@ -388,7 +394,6 @@ if prompt := st.chat_input("How do I join users and grades?"):
     with st.chat_message("assistant"):
         with st.spinner("Thinking..."):
             try:
-                # Prepare Context
                 context_df = df[df['dataset_name'].isin(selected_datasets)] if selected_datasets else df.head(50)
                 csv_context = context_df.to_csv(index=False)
                 
@@ -397,23 +402,19 @@ if prompt := st.chat_input("How do I join users and grades?"):
                 
                 CONTEXT:
                 The user is asking about the following datasets: {', '.join(selected_datasets) if selected_datasets else 'general datasets'}.
-                Here is the schema definition (CSV format):
+                Here is the schema definition:
                 {csv_context[:12000]}
                 
                 INSTRUCTIONS:
-                1. Suggest SQL joins based on the 'key' columns (PK/FK).
-                2. Explain what the columns mean based on 'description'.
-                3. If writing SQL, use standard SQL syntax compatible with Brightspace Data Sets (BDS).
+                1. Suggest SQL joins based on the 'key' columns.
+                2. Explain what the columns mean.
+                3. Output clean, standard SQL.
                 """
 
                 client = openai.OpenAI(api_key=api_key, base_url=base_url)
-
                 response = client.chat.completions.create(
                     model=model_name,
-                    messages=[
-                        {"role": "system", "content": system_msg},
-                        {"role": "user", "content": prompt}
-                    ]
+                    messages=[{"role": "system", "content": system_msg}, {"role": "user", "content": prompt}]
                 )
                 
                 reply = response.choices[0].message.content
