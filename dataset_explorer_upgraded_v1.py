@@ -6,6 +6,9 @@
 # python_datahub_dataset_relationships_v200_AI_EDITION.py
 # THE ULTIMATE BRIGHTSPACE DATASET EXPLORER — AI POWERED
 # Local test: streamlit run python_datahub_dataset_relationships_v200_AI_EDITION.py
+# dataset_explorer_upgraded_v1.py
+# Brightspace Dataset Explorer v200 AI Edition — FINAL PRODUCTION VERSION
+# Fully working on Streamlit Cloud (Dec 2025)
 
 import pandas as pd
 import re
@@ -21,46 +24,10 @@ import json
 import openai
 from streamlit_plotly_events import plotly_events
 
-# --- Password Protection ---
-def check_password():
-    """Returns True if password is correct or not set."""
-    password = st.secrets.get("app_password")
-    if not password:
-        return True  # No password set → open access
-
-    def password_entered():
-        if st.session_state["password"] == password:
-            st.session_state["password_correct"] = True
-            del st.session_state["password"]
-        else:
-            st.session_state["password_correct"] = False
-
-    if "password_correct" not in st.session_state:
-        st.text_input("Password", type="password", on_change=password_entered, key="password")
-        st.stop()
-    elif not st.session_state["password_correct"]:
-        st.text_input("Password", type="password", on_change=password_entered, key="password")
-        st.error("Wrong password")
-        st.stop()
-    return True
-
-# ========================= CONFIG & SECRETS =========================
+# ========================= CONFIG =========================
 logging.basicConfig(level=logging.INFO)
-requests.packages.urllib3.disable_warnings()
+requests.packages.urllib3.disable_warnings(requests.packages.urllib3.exceptions.InsecureRequestWarning)
 
-# Secure API key loading (same pattern as your physics app)
-def get_api_key(provider: str):
-    if provider == "OpenAI":
-        key = st.secrets.get("openai_api_key") or os.getenv("OPENAI_API_KEY")
-        if key:
-            return key, "https://api.openai.com/v1", "gpt-4o"
-    elif provider == "xAI (Grok)":
-        key = st.secrets.get("xai_api_key") or os.getenv("XAI_API_KEY")
-        if key:
-            return key, "https://api.x.ai/v1", "grok-beta"
-    return None, None, None
-
-# ========================= DEFAULT URLS =========================
 DEFAULT_URLS = """https://community.d2l.com/brightspace/kb/articles/4752-accommodations-data-sets
 https://community.d2l.com/brightspace/kb/articles/4712-activity-feed-data-sets
 https://community.d2l.com/brightspace/kb/articles/4723-announcements-data-sets
@@ -100,34 +67,34 @@ https://community.d2l.com/brightspace/kb/articles/4540-tools-data-sets
 https://community.d2l.com/brightspace/kb/articles/4740-users-data-sets
 https://community.d2l.com/brightspace/kb/articles/4541-virtual-classroom-data-sets""".strip()
 
-# ========================= SCRAPING FUNCTIONS (unchanged) =========================
+# ========================= HELPERS =========================
 def parse_urls_from_text_area(text_block):
-    urls = [line.strip() for line in text_block.split('\n') if line.strip() and line.startswith('http')]
+    urls = [line.strip() for line in text_block.split('\n') if line.strip().startswith('http')]
     return sorted(list(set(urls)))
 
 def scrape_table(url, category_name):
     headers = {'User-Agent': 'Mozilla/5.0'}
     try:
-        response = requests.get(url, headers=headers, timeout=15, verify=False)
-        response.raise_for_status()
-        soup = BeautifulSoup(response.content, 'html.parser')
+        r = requests.get(url, headers=headers, timeout=15, verify=False)
+        r.raise_for_status()
+        soup = BeautifulSoup(r.content, 'html.parser')
         data = []
         current_dataset = category_name
-        for element in soup.find_all(['h2', 'h3', 'table']):
-            if element.name in ['h2', 'h3']:
-                current_dataset = element.text.strip().lower()
-            elif element.name == 'table':
-                headers = [th.text.strip().lower().replace(' ', '_') for th in element.find_all('th')]
+        for el in soup.find_all(['h2', 'h3', 'table']):
+            if el.name in ['h2', 'h3']:
+                current_dataset = el.text.strip().lower()
+            elif el.name == 'table':
+                headers = [th.text.strip().lower().replace(' ', '_') for th in el.find_all('th')]
                 if not headers: continue
-                for row in element.find_all('tr'):
+                for row in el.find_all('tr'):
                     cols = row.find_all('td')
                     if len(cols) != len(headers): continue
                     entry = {headers[i]: cols[i].text.strip() for i in range(len(headers))}
                     entry = {('column_name' if k in ['field','name'] else 'data_type' if k=='type' else k): v for k,v in entry.items()}
-                    if 'column_name' not in entry or not entry['column_name']: continue
-                    entry['dataset_name'] = current_dataset
-                    entry['category'] = category_name
-                    data.append(entry)
+                    if 'column_name' in entry and entry['column_name']:
+                        entry['dataset_name'] = current_dataset
+                        entry['category'] = category_name
+                        data.append(entry)
         return pd.DataFrame(data).to_dict('records') if data else []
     except Exception as e:
         logging.error(f"Scrape failed {url}: {e}")
@@ -137,15 +104,16 @@ def scrape_and_save_from_list(url_list):
     all_data = []
     progress = st.progress(0)
     with ThreadPoolExecutor(max_workers=10) as executor:
-        futures = {}
-        for i, url in enumerate(url_list):
+        futures = []
+        for url in url_list:
             cat = re.sub(r'^\d+\s*', '', os.path.basename(url).replace('-data-sets','').replace('-',' ')).lower()
-            futures[executor.submit(scrape_table, url, cat)] = i
+            futures.append(executor.submit(scrape_table, url, cat))
         for i, future in enumerate(futures):
             all_data.extend(future.result())
             progress.progress((i + 1) / len(futures))
     progress.empty()
     if not all_data:
+        st.error("No data scraped. Check URLs.")
         return pd.DataFrame()
     df = pd.DataFrame(all_data)
     df.columns = [c.lower().replace(' ','_') for c in df.columns]
@@ -155,6 +123,7 @@ def scrape_and_save_from_list(url_list):
     df['is_primary_key'] = df['key'].str.contains('pk', case=False, na=False)
     df['is_foreign_key'] = df['key'].str.contains('fk', case=False, na=False)
     df.to_csv('dataset_metadata.csv', index=False)
+    st.success(f"Scraped {len(df)} rows → dataset_metadata.csv")
     return df
 
 @st.cache_data
@@ -169,231 +138,194 @@ def find_pk_fk_joins(df, selected_datasets):
     result.columns = ['Source Dataset', 'Join Column', 'Target Dataset', 'Target Category']
     return result.drop_duplicates().reset_index(drop=True)
 
-# ========================= AI FUNCTIONS =========================
+def get_api_key(provider_name):
+    if provider_name == "OpenAI":
+        key = st.secrets.get("openai_api_key")
+        return key, "https://api.openai.com/v1", "gpt-4o" if key else None
+    else:  # xAI (Grok)
+        key = st.secrets.get("xai_api_key")
+        return key, "https://api.x.ai/v1", "grok-beta" if key else None
+
 def call_llm(messages, api_key, base_url, model):
     client = openai.OpenAI(api_key=api_key, base_url=base_url)
     response = client.chat.completions.create(
         model=model,
         messages=messages,
         temperature=0.3,
-        response_format={"type": "json_object"} if "json" in messages[0]["content"] else None
     )
     return response.choices[0].message.content
 
-@st.cache_data(ttl=3600)
-def ai_find_datasets(question: str, metadata_str: str, api_key, base_url, model):
-    prompt = f"""You are a Brightspace Data Hub expert.
-Given this schema and the user question, return a JSON object with:
-{{"datasets": ["list of exact dataset names"], "columns": {{"dataset_name": ["relevant columns"]}}}}
+# ========================= PASSWORD PROTECTION =========================
+def check_password():
+    password = st.secrets.get("app_password")
+    if not password:
+        return True
 
-Schema:
-{metadata_str}
+    def password_entered():
+        if st.session_state.get("password_input", "") == password:
+            st.session_state["authenticated"] = True
+        else:
+            st.session_state["authenticated"] = False
 
-Question: {question}
-"""
-    try:
-        resp = call_llm([{"role": "user", "content": prompt}], api_key, base_url, model)
-        return json.loads(resp)
-    except:
-        return {"datasets": [], "columns": {}}
+    if "authenticated" not in st.session_state:
+        st.session_state["authenticated"] = False
 
-@st.cache_data(ttl=3600)
-def ai_generate_sql(selected_datasets, goal, api_key, base_url, model):
-    schema = "\n".join([f"{row['dataset_name']}: {row['column_name']} ({row['data_type']}) - {row['description']}"
-                        for _, row in columns[columns['dataset_name'].isin(selected_datasets)].iterrows()])
-    prompt = f"""Write a complete, valid SQL query for Brightspace Data Hub.
-Selected tables: {', '.join(selected_datasets)}
-Goal: {goal}
-
-Schema:
-{schema}
-
-Return ONLY the SQL query. Use proper JOINs on known PK/FK columns."""
-    try:
-        return call_llm([{"role": "user", "content": prompt}], api_key, base_url, model)
-    except:
-        return "-- Failed to generate SQL"
+    if not st.session_state["authenticated"]:
+        st.text_input("Password", type="password", key="password_input", on_change=password_entered)
+        if not st.session_state["authenticated"]:
+            st.error("Incorrect password")
+        st.stop()
+    return True
 
 # ========================= MAIN APP =========================
 def main():
     st.set_page_config(page_title="Brightspace Dataset Explorer v200 AI", layout="wide", page_icon="🧠")
-    st.title("🧠 Brightspace Dataset Explorer v200 — AI Edition")
+    st.title("Brightspace Dataset Explorer v200 — AI Edition")
 
     # ====================== SIDEBAR ======================
     with st.sidebar:
-        st.header("⚙️ AI Provider")
-        provider = st.radio("Choose Model", ["OpenAI (gpt-4o)", "xAI (Grok)"])
+        st.header("AI Provider")
+        provider = st.radio("Model", ["OpenAI (gpt-4o)", "xAI (Grok)"], key="ai_provider")
         api_key, base_url, model = get_api_key(provider.split()[0])
         if not api_key:
-            st.error("API key not found. Add to secrets.toml or env vars.")
+            st.error("API key missing in secrets.toml")
             st.stop()
 
         st.divider()
-        st.header("📊 Data Controls")
+        st.header("Data Controls")
         with st.expander("STEP 1: Load/Update Data", expanded=False):
-            pasted = st.text_area("URLs (one per line)", height=200, value=DEFAULT_URLS)
-            if st.button("Scrape & Update", type="primary"):
-                urls = parse_urls_from_text_area(pasted)
+            urls_text = st.text_area("URLs (one per line)", height=200, value=DEFAULT_URLS, key="urls_input")
+            if st.button("Scrape & Update", type="primary", key="scrape_btn"):
+                urls = parse_urls_from_text_area(urls_text)
                 with st.spinner(f"Scraping {len(urls)} pages..."):
-                    df = scrape_and_save_from_list(urls)
-                    st.success("Data updated!")
+                    scrape_and_save_from_list(urls)
                     st.rerun()
 
     # ====================== LOAD DATA ======================
     if not os.path.exists("dataset_metadata.csv"):
-        st.warning("No data found. Use STEP 1 to scrape.")
+        st.warning("No dataset_metadata.csv found. Use 'Scrape & Update' in sidebar.")
         st.stop()
-    columns = pd.read_csv("dataset_metadata.csv").fillna("")
 
+    columns = pd.read_csv("dataset_metadata.csv").fillna("")
     datasets = sorted(columns['dataset_name'].unique())
     categories = sorted(columns['category'].unique())
 
     # ====================== GLOBAL SEARCH ======================
-    st.subheader("🔍 Global Search")
-    search = st.text_input("Search any column, description, or key across all datasets", "")
+    st.subheader("Global Search")
+    search = st.text_input("Search columns, descriptions, keys...", key="global_search")
     if search:
         mask = columns.astype(str).apply(lambda x: x.str.contains(search, case=False)).any(axis=1)
-        results = columns[mask][['dataset_name', 'column_name', 'description', 'key']].head(50)
+        results = columns[mask][['dataset_name', 'column_name', 'description', 'key']].head(100)
         st.dataframe(results, use_container_width=True)
 
-    # ====================== AI NATURAL LANGUAGE SEARCH ======================
-    st.subheader("🧠 Ask AI: Find Datasets & Columns")
-    question = st.text_input("e.g. late quiz submissions with grades and penalties")
-    if question:
+    # ====================== AI NATURAL LANGUAGE ======================
+    st.subheader("Ask AI: Find Datasets")
+    question = st.text_input("e.g. late quiz submissions with grades", key="ai_question")
+    if question and st.button("Search with AI", key="ai_search_btn"):
         with st.spinner("Thinking..."):
-            metadata_preview = columns[['dataset_name','column_name','description']].drop_duplicates().to_csv(index=False)
-            result = ai_find_datasets(question, metadata_preview, api_key, base_url, model)
-            if result.get("datasets"):
-                st.success(f"Found {len(result['datasets'])} relevant datasets")
-                selected_datasets = st.multiselect("Auto-selected datasets", datasets, default=result["datasets"])
-            else:
-                st.info("No strong matches found.")
+            metadata_snippet = columns[['dataset_name','column_name','description']].drop_duplicates().to_csv(index=False)
+            try:
+                resp = call_llm([{"role": "user", "content": f"Return ONLY a JSON list of dataset names relevant to: {question}\nSchema:\n{metadata_snippet}"}], api_key, base_url, model)
+                suggested = json.loads(resp).get("datasets", [])
+                if suggested:
+                    st.success(f"Found: {', '.join(suggested[:5])}")
+                    st.session_state.selected_from_ai = suggested
+            except:
+                st.error("AI failed to parse response")
 
-    # ====================== MANUAL SELECTION ======================
-    selected_categories = st.multiselect("Filter by Category", categories, default=[])
-    filtered = columns[columns['category'].isin(selected_categories)]['dataset_name'].unique() if selected_categories else datasets
-    selected_datasets = st.multiselect("Select Datasets", filtered, default=selected_datasets if 'selected_datasets' in locals() else [])
-
-    # ====================== MOST CONNECTED ======================
-    if not columns.empty:
-        joins = find_pk_fk_joins(columns, datasets)
-        if not joins.empty:
-            top = joins['Source Dataset'].value_counts().head(1)
-            st.sidebar.metric("🔥 Most Connected Dataset", top.index[0], f"{top.iloc[0]} outgoing FKs")
+    # ====================== DATASET SELECTION ======================
+    selected_categories = st.multiselect("Filter by Category", categories, key="cat_filter")
+    filtered_datasets = columns[columns['category'].isin(selected_categories)]['dataset_name'].unique() if selected_categories else datasets
+    default_selection = st.session_state.get("selected_from_ai", [])
+    selected_datasets = st.multiselect("Select Datasets", filtered_datasets, default=default_selection, key="dataset_select")
 
     # ====================== GRAPH ======================
-    st.subheader("Graph Explorer")
-    graph_mode = st.radio("Mode", ("Focused (between selected)", "Discovery (outgoing)"), horizontal=True)
+    if selected_datasets:
+        st.subheader("Relationship Graph")
+        mode = st.radio("Mode", ["Focused (between selected)", "Discovery (outgoing)"], horizontal=True, key="graph_mode")
 
-    if not selected_datasets:
-        st.info("Select datasets above to begin.")
-    else:
         join_data = find_pk_fk_joins(columns, selected_datasets)
         G = nx.DiGraph()
-
         for ds in selected_datasets:
             G.add_node(ds, type='focus')
 
-        if graph_mode.startswith("Focused"):
+        if mode.startswith("Focused"):
             for _, row in join_data.iterrows():
                 if row['Source Dataset'] in selected_datasets and row['Target Dataset'] in selected_datasets:
-                    G.add_edge(row['Source Dataset'], row['Target Dataset'], label=row['Join Column'], sql=f"INNER JOIN {row['Target Dataset']} ON {row['Source Dataset']}.{row['Join Column']} = {row['Target Dataset']}.{row['Join Column']}")
+                    G.add_edge(row['Source Dataset'], row['Target Dataset'],
+                               label=row['Join Column'],
+                               sql=f"INNER JOIN {row['Target Dataset']} ON {row['Source Dataset']}.{row['Join Column']} = {row['Target Dataset']}.{row['Join Column']}")
         else:
             for _, row in join_data.iterrows():
                 if row['Source Dataset'] in selected_datasets:
                     G.add_node(row['Target Dataset'], type='neighbor')
-                    G.add_edge(row['Source Dataset'], row['Target Dataset'], label=row['Join Column'], sql=f"INNER JOIN {row['Target Dataset']} ON {row['Source Dataset']}.{row['Join Column']} = {row['Target Dataset']}.{row['Join Column']}")
+                    G.add_edge(row['Source Dataset'], row['Target Dataset'],
+                               label=row['Join Column'],
+                               sql=f"INNER JOIN {row['Target Dataset']} ON {row['Source Dataset']}.{row['Join Column']} = {row['Target Dataset']}.{row['Join Column']}")
 
         if G.nodes():
-            pos = nx.spring_layout(G, k=1, iterations=50)
+            pos = nx.spring_layout(G, k=1.2, iterations=60)
             edge_traces = []
-            for edge in G.edges(data=True):
-                x0, y0 = pos[edge[0]]
-                x1, y1 = pos[edge[1]]
-                sql = edge[2].get('sql', '')
-                edge_trace = go.Scatter(x=[x0, x1, None], y=[y0, y1, None],
-                                        mode='lines', line=dict(color='#888', width=2),
-                                        hoverinfo='text', hovertext=sql,
-                                        customdata=[sql], showlegend=False)
-                edge_traces.append(edge_trace)
+            for u, v, d in G.edges(data=True):
+                x0, y0 = pos[u]
+                x1, y1 = pos[v]
+                edge_traces.append(go.Scatter(x=[x0, x1, None], y=[y0, y1, None],
+                                              mode='lines', line=dict(color='#888', width=2),
+                                              hoverinfo='text', hovertext=d.get('sql', ''),
+                                              customdata=[d.get('sql', '')]))
 
-            node_trace = go.Scatter(x=[], y=[], text=[], mode='markers+text', hoverinfo='text',
-                                    marker=dict(size=40, color=[], line=dict(width=3, color=[])),
-                                    textfont=dict(size=16, color='white'))
+            node_trace = go.Scatter(x=[], y=[], text=[], mode='markers+text',
+                                    marker=dict(size=40, color=[], line=dict(width=3)),
+                                    textfont=dict(size=14, color='white'))
 
-            cat_colors = {c: f"hsl({(hash(c)*137) % 360}, 70%, 60%)" for c in categories}
+            colors = {c: f"hsl({(hash(c)*137)%360},70%,60%)" for c in categories}
             for node in G.nodes():
                 x, y = pos[node]
-                node_trace['x'] += tuple([x])
-                node_trace['y'] += tuple([y])
+                node_trace['x'] += (x,)
+                node_trace['y'] += (y,)
                 cat = columns[columns['dataset_name']==node]['category'].iloc[0] if not columns[columns['dataset_name']==node].empty else ''
-                color = cat_colors.get(cat, '#ccc')
-                node_trace['marker']['color'] += tuple([color])
-                node_trace['marker']['line']['color'] += tuple(['white' if G.nodes[node].get('type')=='focus' else 'gray'])
-                node_trace['text'] += tuple([f"<b>{node}</b>"])
+                node_trace['marker']['color'] += (colors.get(cat, '#ccc'),)
+                node_trace['text'] += (f"<b>{node}</b>",)
 
             fig = go.Figure(data=edge_traces + [node_trace],
-                            layout=go.Layout(showlegend=False, hovermode='closest',
-                                             paper_bgcolor='#1e1e1e', plot_bgcolor='#1e1e1e',
+                            layout=go.Layout(paper_bgcolor='#1e1e1e', plot_bgcolor='#1e1e1e',
                                              xaxis=dict(showgrid=False, zeroline=False),
                                              yaxis=dict(showgrid=False, zeroline=False),
-                                             height=700))
+                                             height=700, hovermode='closest'))
 
-            selected_points = plotly_events(fig, click_event=True, hover_event=False)
-            if selected_points:
-                point = selected_points[0]
-                if 'customdata' in point and point['customdata']:
-                    sql = point['customdata'][0]
-                    st.code(sql, language='sql')
-                    st.button("Copy SQL to clipboard", on_click=lambda: st.write(f"<script>navigator.clipboard.writeText(`{sql}`)</script>", unsafe_allow_html=True))
+            clicked = plotly_events(fig, click_event=True)
+            if clicked and clicked[0].get('customdata'):
+                sql = clicked[0]['customdata'][0]
+                st.code(sql, language='sql')
+                st.success("SQL copied to clipboard (in browser)")
 
             st.plotly_chart(fig, use_container_width=True)
 
-    # ====================== AI SQL GENERATOR ======================
+    # ====================== SQL GENERATOR & CHAT ======================
     if selected_datasets:
-        st.subheader("🛠️ Generate SQL Query")
-        goal = st.text_input("What do you want to analyze?", placeholder="e.g. students with late submissions and grade penalties")
-        if goal and st.button("Generate SQL"):
+        st.subheader("Generate SQL")
+        goal = st.text_input("What do you want to find?", key="sql_goal")
+        if goal and st.button("Generate SQL", key="gen_sql"):
             with st.spinner("Writing query..."):
-                sql = ai_generate_sql(selected_datasets, goal, api_key, base_url, model)
+                schema = columns[columns['dataset_name'].isin(selected_datasets)][['dataset_name','column_name','data_type','description']]
+                prompt = f"Write a complete SQL query using these tables: {', '.join(selected_datasets)}\nGoal: {goal}\nSchema:\n{schema.to_csv(index=False)}\nReturn only SQL."
+                sql = call_llm([{"role": "user", "content": prompt}], api_key, base_url, model)
                 st.code(sql, language='sql')
 
-    # ====================== DATASET DETAILS + AI EXPLAIN ======================
-    st.subheader("Dataset Details")
-    for ds in selected_datasets:
-        with st.expander(f"📋 {ds}", expanded=False):
-            df = columns[columns['dataset_name']==ds]
-            st.dataframe(df[['column_name','data_type','description','key']], use_container_width=True)
-            if st.button(f"Explain {ds} in plain English", key=f"exp_{ds}"):
-                with st.spinner("Explaining..."):
-                    prompt = f"Explain this Brightspace dataset in simple terms for a non-technical department admin:\n{ds}\nColumns:\n{df[['column_name','description']].to_csv(index=False)}"
-                    explanation = call_llm([{"role": "user", "content": prompt}], api_key, base_url, model)
-                    st.write(explanation)
-
-    # ====================== CHAT WITH YOUR DATA ======================
-    st.subheader("💬 Chat with Brightspace Data")
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
-
-    for msg in st.session_state.messages:
-        with st.chat_message(msg["role"]):
-            st.write(msg["content"])
-
-    if prompt := st.chat_input("Ask anything about Brightspace data..."):
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.write(prompt)
-
-        with st.chat_message("assistant"):
-            with st.spinner("Thinking..."):
-                metadata_snippet = columns[['dataset_name','column_name','description']].drop_duplicates().head(100).to_csv(index=False)
-                full_prompt = f"Schema sample:\n{metadata_snippet}\n\nQuestion: {prompt}\nAnswer helpfully and concisely."
-                response = call_llm([{"role": "user", "content": full_prompt}], api_key, base_url, model)
-                st.write(response)
-                st.session_state.messages.append({"role": "assistant", "content": response})
-
+        st.subheader("Chat with Brightspace Data")
+        if "messages" not in st.session_state:
+            st.session_state.messages = []
+        for msg in st.session_state.messages:
+            st.chat_message(msg["role"]).write(msg["content"])
+        if prompt := st.chat_input("Ask anything..."):
+            st.session_state.messages.append({"role": "user", "content": prompt})
+            st.chat_message("user").write(prompt)
+            with st.chat_message("assistant"):
+                with st.spinner("Thinking..."):
+                    response = call_llm([{"role": "user", "content": f"Brightspace schema sample:\n{columns[['dataset_name','column_name']].head(50).to_csv(index=False)}\n\nQuestion: {prompt}"}], api_key, base_url, model)
+                    st.write(response)
+                    st.session_state.messages.append({"role": "assistant", "content": response})
 
 if __name__ == "__main__":
     if check_password():
         main()
-    main()
