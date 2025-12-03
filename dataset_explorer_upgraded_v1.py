@@ -100,48 +100,62 @@ https://community.d2l.com/brightspace/kb/articles/4740-users-data-sets
 https://community.d2l.com/brightspace/kb/articles/4541-virtual-classroom-data-sets""".strip()
 
 # ========================= SCRAPER WITH DETAILED FEEDBACK =========================
+# ========================= FINAL SCRAPER — CORRECTLY CAPTURES DATASET NAMES =========================
 def scrape_and_save(urls):
     data = []
-    with st.spinner("Scraping dataset pages..."):
+    with st.spinner("Scraping Brightspace dataset pages..."):
         with ThreadPoolExecutor(max_workers=10) as executor:
-            futures = []
-            for url in urls:
-                futures.append(executor.submit(requests.get, url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=15))
+            futures = [executor.submit(requests.get, url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=15) for url in urls]
+            
             for future, url in zip(futures, urls):
                 try:
                     soup = BeautifulSoup(future.result().content, 'html.parser')
-                    cat = re.sub(r'^\d+\s*', '', os.path.basename(url).replace('-data-sets','').replace('-',' ')).title()
-                    current = cat.lower()
-                    for h in soup.find_all(['h2','h3']):
-                        current = h.get_text(strip=True).lower()
-                    for table in soup.find_all('table'):
-                        headers = [th.get_text(strip=True) for th in table.find_all('th')]
-                        if not headers: continue
-                        for row in table.find_all('tr')[1:]:
-                            cols = [td.get_text(strip=True) for td in row.find_all('td')]
-                            if len(cols) >= len(headers):
-                                entry = dict(zip(headers, cols))
-                                entry['dataset_name'] = current
-                                entry['category'] = cat
-                                data.append(entry)
+                    category = re.sub(r'^\d+\s*', '', os.path.basename(url).replace('-data-sets','').replace('-',' ')).title()
+                    
+                    current_dataset = category  # fallback
+                    
+                    # Process all headings and tables in order
+                    for element in soup.find_all(['h2', 'h3', 'table']):
+                        if element.name in ['h2', 'h3']:
+                            heading_text = element.get_text(strip=True)
+                            if heading_text and not heading_text.lower().startswith("brightspace"):
+                                current_dataset = heading_text.strip()
+                        
+                        elif element.name == 'table':
+                            headers = [th.get_text(strip=True) for th in element.find_all('th')]
+                            if not headers:
+                                continue
+                            for row in element.find_all('tr')[1:]:
+                                cols = [td.get_text(strip=True) for td in row.find_all('td')]
+                                if len(cols) >= len(headers):
+                                    entry = dict(zip(headers, cols))
+                                    entry['dataset_name'] = current_dataset
+                                    entry['category'] = category
+                                    data.append(entry)
                 except:
-                    pass
+                    continue
 
-    if data:
-        df = pd.DataFrame(data)
-        df = standardize_columns(df)
-        if 'key' not in df.columns:
-            df['key'] = ''  # create empty key column if missing
-        df['is_primary_key'] = df['key'].astype(str).str.contains('pk', case=False, na=False)
-        df['is_foreign_key'] = df['key'].astype(str).str.contains('fk', case=False, na=False)
-        df.to_csv("dataset_metadata.csv", index=False)
+    if not data:
+        st.error("No data was scraped from any page.")
+        return
 
-        st.success(
-            f"Scraping complete.\n\n"
-            f"• **{df['category'].nunique()}** categories\n"
-            f"• **{df['dataset_name'].nunique()}** datasets\n"
-            f"• **{len(df):,}** column entries"
-        )
+    df = pd.DataFrame(data)
+    df = standardize_columns(df)
+    
+    # Safe key handling
+    if 'key' not in df.columns:
+        df['key'] = ''
+    df['is_primary_key'] = df['key'].astype(str).str.contains('pk', case=False, na=False)
+    df['is_foreign_key'] = df['key'].astype(str).str.contains('fk', case=False, na=False)
+    
+    df.to_csv("dataset_metadata.csv", index=False)
+
+    st.success(
+        f"Scraping complete.\n\n"
+        f"• **{df['category'].nunique()}** categories\n"
+        f"• **{df['dataset_name'].nunique()}** datasets\n"
+        f"• **{len(df):,}** column entries"
+    )
     else:
         st.error("No data was scraped.")
 
@@ -301,5 +315,6 @@ if goal and st.button("Generate SQL"):
         st.code(sql.strip("`").strip(), language="sql")
 
 st.caption("Brightspace Dataset Explorer — built for internal use.")
+
 
 
