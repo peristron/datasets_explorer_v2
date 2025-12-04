@@ -21,48 +21,28 @@ requests.packages.urllib3.disable_warnings(requests.packages.urllib3.exceptions.
 # ========================= INITIALIZE SESSION STATE =========================
 if 'total_cost' not in st.session_state: st.session_state['total_cost'] = 0.0
 if 'total_tokens' not in st.session_state: st.session_state['total_tokens'] = 0
+if 'authenticated' not in st.session_state: st.session_state['authenticated'] = False
 if 'auth_error' not in st.session_state: st.session_state['auth_error'] = False
 
-# ========================= PASSWORD PROTECTION (CLEANER VERSION) =========================
-def check_password():
-    """
-    Password protection using on_change for a cleaner UI.
-    Allows 'Enter' key to submit without a visible Form border/button.
-    """
+# ========================= AUTHENTICATION LOGIC =========================
+def perform_login():
+    """Callback to verify password."""
     pwd = st.secrets.get("app_password")
-    # If no password set in secrets, bypass login
-    if not pwd: return True 
-    
-    # Check authentication state
-    if st.session_state.get("authenticated", False): return True
-    
-    # Authentication Callback
-    def verify_password():
-        if st.session_state["password_input"] == pwd:
-            st.session_state["authenticated"] = True
-            st.session_state["auth_error"] = False
-        else:
-            st.session_state["auth_error"] = True
-            st.session_state["password_input"] = "" # Clear input on fail
+    # If no password set in secrets, auto-login
+    if not pwd:
+        st.session_state['authenticated'] = True
+        return
 
-    # Login UI
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        st.title("🔐 Login")
-        st.text_input(
-            "Enter Password", 
-            type="password", 
-            key="password_input", 
-            on_change=verify_password,
-            help="Press Enter to submit"
-        )
-        
-        if st.session_state["auth_error"]:
-            st.error("❌ Incorrect password. Please try again.")
-            
-    st.stop()
+    if st.session_state.get("password_input") == pwd:
+        st.session_state['authenticated'] = True
+        st.session_state['auth_error'] = False
+    else:
+        st.session_state['auth_error'] = True
+        st.session_state['authenticated'] = False
 
-check_password()
+def logout():
+    st.session_state['authenticated'] = False
+    st.session_state['password_input'] = ""
 
 # ========================= HELPER: CLEAR CALLBACK =========================
 def clear_all_selections():
@@ -208,6 +188,7 @@ else:
 with st.sidebar:
     st.title("Brightspace Explorer")
     
+    # --- USER GUIDE ---
     with st.expander("❓ How to use this app", expanded=False):
         st.markdown("""
         **1. Load Data:** 
@@ -219,42 +200,59 @@ with st.sidebar:
         **3. Visualize:**
         Select datasets to map relationships.
         
-        **4. Ask AI:**
-        Toggle 'Include ALL Datasets' to search everything.
+        **4. Ask AI (Locked):**
+        Log in to unlock AI Chat features.
         """)
 
-    with st.expander("🤖 AI Settings", expanded=False):
-        ai_provider = st.radio("Provider", ["OpenAI (GPT-4o)", "xAI (Grok)"])
+    # ========================= AUTHENTICATED SECTION =========================
+    # If logged in: Show AI Settings & Cost
+    # If NOT logged in: Show Password Input
+    
+    if st.session_state['authenticated']:
+        st.success("🔓 AI Features Unlocked")
         
-        if "OpenAI" in ai_provider:
-            api_key_name = "openai_api_key"
-            base_url = None 
-            model_name = "gpt-4o"
-            price_in = 2.50
-            price_out = 10.00
-        else:
-            api_key_name = "xai_api_key"
-            base_url = "https://api.x.ai/v1"
-            model_name = "grok-2-1212" 
-            price_in = 2.00
-            price_out = 10.00
-
-        # Manual Override for Model Name
-        model_name = st.text_input("Model Name", value=model_name, help="Change to 'grok-3' or 'grok-beta' if needed.")
+        with st.expander("🤖 AI Settings", expanded=True):
+            ai_provider = st.radio("Provider", ["OpenAI (GPT-4o)", "xAI (Grok)"])
             
-        api_key = st.secrets.get(api_key_name)
-        if not api_key: api_key = st.text_input(f"Enter {api_key_name}", type="password")
+            if "OpenAI" in ai_provider:
+                api_key_name = "openai_api_key"
+                base_url = None 
+                model_name = "gpt-4o"
+                price_in = 2.50
+                price_out = 10.00
+            else:
+                api_key_name = "xai_api_key"
+                base_url = "https://api.x.ai/v1"
+                model_name = "grok-2-1212" 
+                price_in = 2.00
+                price_out = 10.00
 
-    with st.expander("💰 Cost Estimator", expanded=False):
-        st.caption(f"Current Session ({model_name})")
-        c1, c2 = st.columns(2)
-        c1.markdown(f"**Tokens:**\n{st.session_state['total_tokens']:,}")
-        c2.markdown(f"**Cost:**\n`${st.session_state['total_cost']:.5f}`")
-        if st.button("Reset Cost"):
-            st.session_state['total_cost'] = 0.0
-            st.session_state['total_tokens'] = 0
+            model_name = st.text_input("Model Name", value=model_name, help="Change to 'grok-3' or 'grok-beta' if needed.")
+            api_key = st.secrets.get(api_key_name)
+            if not api_key: api_key = st.text_input(f"Enter {api_key_name}", type="password")
+
+        with st.expander("💰 Cost Estimator", expanded=False):
+            st.caption(f"Current Session ({model_name})")
+            c1, c2 = st.columns(2)
+            c1.markdown(f"**Tokens:**\n{st.session_state['total_tokens']:,}")
+            c2.markdown(f"**Cost:**\n`${st.session_state['total_cost']:.5f}`")
+            if st.button("Reset Cost"):
+                st.session_state['total_cost'] = 0.0
+                st.session_state['total_tokens'] = 0
+                st.rerun()
+        
+        if st.button("Logout", type="secondary"):
+            logout()
             st.rerun()
 
+    else:
+        # === LOGIN FORM ===
+        with st.expander("🔐 AI Login (Locked)", expanded=True):
+            st.text_input("Password", type="password", key="password_input", on_change=perform_login, help="Enter password to unlock AI")
+            if st.session_state['auth_error']:
+                st.error("Incorrect password.")
+
+    # ========================= PUBLIC SECTIONS =========================
     st.divider()
     st.header("1. Search & Select")
     
@@ -427,80 +425,85 @@ else:
             joined_tables.add(u)
     st.code("\n".join(sql_lines), language="sql")
 
+# 6. AI Chat (Conditional)
 st.divider()
 st.subheader(f"Ask {ai_provider.split(' ')[0]} about your data")
 
-col_chat_opt, col_chat_msg = st.columns([1, 3])
-with col_chat_opt:
-    use_full_context = st.checkbox("Include ALL Datasets", help="Sends the entire database schema to AI. Higher cost/token usage.", value=False)
+if not st.session_state['authenticated']:
+    st.info("🔒 **AI features are locked.** Please log in via the sidebar to chat with your data.")
+    
+else:
+    # --- LOGGED IN VIEW ---
+    col_chat_opt, col_chat_msg = st.columns([1, 3])
+    with col_chat_opt:
+        use_full_context = st.checkbox("Include ALL Datasets", help="Sends the entire database schema to AI. Higher cost/token usage.", value=False)
 
-if "messages" not in st.session_state: st.session_state.messages = []
-for message in st.session_state.messages:
-    with st.chat_message(message["role"]): st.markdown(message["content"])
+    if "messages" not in st.session_state: st.session_state.messages = []
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]): st.markdown(message["content"])
 
-if prompt := st.chat_input("e.g., Explain these columns..."):
-    if not api_key:
-        st.error("Please enter API Key in sidebar.")
-        st.stop()
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user"): st.markdown(prompt)
+    if prompt := st.chat_input("e.g., Explain these columns..."):
+        if not api_key:
+            st.error("Please enter API Key in sidebar.")
+            st.stop()
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        with st.chat_message("user"): st.markdown(prompt)
 
-    with st.chat_message("assistant"):
-        with st.spinner("Thinking..."):
-            try:
-                if use_full_context:
-                    # === COMPRESSION / OPTIMIZATION ===
-                    # Group by dataset to remove repetition of DatasetName/URL
-                    schema_text = []
-                    for ds_name, group in df.groupby('dataset_name'):
-                        url = group['url'].iloc[0] if 'url' in group.columns and pd.notna(group['url'].iloc[0]) else "No URL"
-                        cols = []
-                        for _, row in group.iterrows():
-                            c = row['column_name']
-                            if row['is_primary_key']: c += " (PK)"
-                            elif row['is_foreign_key']: c += " (FK)"
-                            cols.append(c)
-                        schema_text.append(f"TABLE: {ds_name} ({url})\nCOLS: {', '.join(cols)}")
+        with st.chat_message("assistant"):
+            with st.spinner("Thinking..."):
+                try:
+                    if use_full_context:
+                        # === COMPRESSION / OPTIMIZATION ===
+                        schema_text = []
+                        for ds_name, group in df.groupby('dataset_name'):
+                            url = group['url'].iloc[0] if 'url' in group.columns and pd.notna(group['url'].iloc[0]) else "No URL"
+                            cols = []
+                            for _, row in group.iterrows():
+                                c = row['column_name']
+                                if row['is_primary_key']: c += " (PK)"
+                                elif row['is_foreign_key']: c += " (FK)"
+                                cols.append(c)
+                            schema_text.append(f"TABLE: {ds_name} ({url})\nCOLS: {', '.join(cols)}")
+                        
+                        scope_msg = "You are viewing the FULL database schema (Summarized)."
+                        final_csv = "\n\n".join(schema_text)
+                    else:
+                        cols_needed = ['dataset_name', 'column_name', 'data_type', 'description', 'key', 'url']
+                        if 'url' not in df.columns: cols_needed.remove('url')
+                        context_df = df[df['dataset_name'].isin(selected_datasets)][cols_needed] if selected_datasets else df.head(50)
+                        scope_msg = f"You are viewing a SUBSET of {len(selected_datasets)} selected datasets."
+                        final_csv = context_df.to_csv(index=False)
+
+                    system_msg = f"""
+                    You are an expert SQL Data Architect for Brightspace (D2L).
+                    Context Scope: {scope_msg}
                     
-                    scope_msg = "You are viewing the FULL database schema (Summarized)."
-                    final_csv = "\n\n".join(schema_text)
-                else:
-                    cols_needed = ['dataset_name', 'column_name', 'data_type', 'description', 'key', 'url']
-                    if 'url' not in df.columns: cols_needed.remove('url')
-                    context_df = df[df['dataset_name'].isin(selected_datasets)][cols_needed] if selected_datasets else df.head(50)
-                    scope_msg = f"You are viewing a SUBSET of {len(selected_datasets)} selected datasets."
-                    final_csv = context_df.to_csv(index=False)
-
-                system_msg = f"""
-                You are an expert SQL Data Architect for Brightspace (D2L).
-                Context Scope: {scope_msg}
-                
-                INSTRUCTIONS:
-                1. If you mention a dataset, you MUST provide its Source URL (if available).
-                2. Format links as: [Dataset Name](URL)
-                3. Be concise.
-                
-                Schema Data:
-                {final_csv}
-                """
-                
-                client = openai.OpenAI(api_key=api_key, base_url=base_url)
-                response = client.chat.completions.create(
-                    model=model_name,
-                    messages=[{"role": "system", "content": system_msg}, {"role": "user", "content": prompt}]
-                )
-                
-                if hasattr(response, 'usage') and response.usage:
-                    in_tok = response.usage.prompt_tokens
-                    out_tok = response.usage.completion_tokens
-                    cost = (in_tok * price_in / 1_000_000) + (out_tok * price_out / 1_000_000)
-                    st.session_state['total_tokens'] += (in_tok + out_tok)
-                    st.session_state['total_cost'] += cost
-                
-                reply = response.choices[0].message.content
-                st.markdown(reply)
-                st.session_state.messages.append({"role": "assistant", "content": reply})
-                st.rerun()
-                
-            except Exception as e:
-                st.error(f"Error: {e}")
+                    INSTRUCTIONS:
+                    1. If you mention a dataset, you MUST provide its Source URL (if available).
+                    2. Format links as: [Dataset Name](URL)
+                    3. Be concise.
+                    
+                    Schema Data:
+                    {final_csv}
+                    """
+                    
+                    client = openai.OpenAI(api_key=api_key, base_url=base_url)
+                    response = client.chat.completions.create(
+                        model=model_name,
+                        messages=[{"role": "system", "content": system_msg}, {"role": "user", "content": prompt}]
+                    )
+                    
+                    if hasattr(response, 'usage') and response.usage:
+                        in_tok = response.usage.prompt_tokens
+                        out_tok = response.usage.completion_tokens
+                        cost = (in_tok * price_in / 1_000_000) + (out_tok * price_out / 1_000_000)
+                        st.session_state['total_tokens'] += (in_tok + out_tok)
+                        st.session_state['total_cost'] += cost
+                    
+                    reply = response.choices[0].message.content
+                    st.markdown(reply)
+                    st.session_state.messages.append({"role": "assistant", "content": reply})
+                    st.rerun()
+                    
+                except Exception as e:
+                    st.error(f"Error: {e}")
