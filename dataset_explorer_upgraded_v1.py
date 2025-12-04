@@ -28,7 +28,6 @@ if 'auth_error' not in st.session_state: st.session_state['auth_error'] = False
 def perform_login():
     """Callback to verify password."""
     pwd = st.secrets.get("app_password")
-    # If no password set in secrets, auto-login
     if not pwd:
         st.session_state['authenticated'] = True
         return
@@ -188,6 +187,11 @@ else:
 with st.sidebar:
     st.title("Brightspace Explorer")
     
+    # --- DEFAULTS FOR UI ---
+    # FIX: Set default provider string so UI doesn't crash if not logged in
+    ai_provider = "OpenAI (GPT-4o)" 
+    model_name = "gpt-4o"
+
     # --- USER GUIDE ---
     with st.expander("❓ How to use this app", expanded=False):
         st.markdown("""
@@ -205,9 +209,6 @@ with st.sidebar:
         """)
 
     # ========================= AUTHENTICATED SECTION =========================
-    # If logged in: Show AI Settings & Cost
-    # If NOT logged in: Show Password Input
-    
     if st.session_state['authenticated']:
         st.success("🔓 AI Features Unlocked")
         
@@ -427,6 +428,7 @@ else:
 
 # 6. AI Chat (Conditional)
 st.divider()
+# FIX: Variable 'ai_provider' now safely defined
 st.subheader(f"Ask {ai_provider.split(' ')[0]} about your data")
 
 if not st.session_state['authenticated']:
