@@ -128,7 +128,6 @@ def scrape_table(url, category_name):
                     if 'column_name' in entry and entry['column_name']:
                         entry['dataset_name'] = current_dataset
                         entry['category'] = category_name
-                        # === ADDED: Save URL to data ===
                         entry['url'] = url 
                         data.append(entry)
         return data
@@ -187,7 +186,6 @@ else:
 with st.sidebar:
     st.title("Brightspace Explorer")
     
-    # --- USER GUIDE ---
     with st.expander("❓ How to use this app", expanded=False):
         st.markdown("""
         **1. Load Data:** 
@@ -203,9 +201,9 @@ with st.sidebar:
         Toggle 'Include ALL Datasets' to search everything.
         """)
 
-    # --- AI Section ---
     with st.expander("🤖 AI Settings", expanded=False):
         ai_provider = st.radio("Provider", ["OpenAI (GPT-4o)", "xAI (Grok)"])
+        
         if "OpenAI" in ai_provider:
             api_key_name = "openai_api_key"
             base_url = None 
@@ -215,28 +213,27 @@ with st.sidebar:
         else:
             api_key_name = "xai_api_key"
             base_url = "https://api.x.ai/v1"
-            model_name = "grok-beta"
+            # Default to stable production model
+            model_name = "grok-2-1212" 
             price_in = 2.00
-            price_out = 8.00
+            price_out = 10.00
+
+        # Manual Override for Model Name (Fixes deprecation issues)
+        model_name = st.text_input("Model Name", value=model_name, help="Change to 'grok-3' or 'grok-beta' if needed.")
             
         api_key = st.secrets.get(api_key_name)
         if not api_key: api_key = st.text_input(f"Enter {api_key_name}", type="password")
 
-    # --- COST ESTIMATOR ---
     with st.expander("💰 Cost Estimator", expanded=False):
         st.caption(f"Current Session ({model_name})")
-        
-        # Using standard markdown/text to ensure precision isn't truncated
         c1, c2 = st.columns(2)
         c1.markdown(f"**Tokens:**\n{st.session_state['total_tokens']:,}")
         c2.markdown(f"**Cost:**\n`${st.session_state['total_cost']:.5f}`")
-        
         if st.button("Reset Cost"):
             st.session_state['total_cost'] = 0.0
             st.session_state['total_tokens'] = 0
             st.rerun()
 
-    # --- SEARCH ---
     st.divider()
     st.header("1. Search & Select")
     
@@ -268,7 +265,6 @@ with st.sidebar:
             all_ds = sorted(df['dataset_name'].unique())
             selected_datasets = st.multiselect("Search All:", all_ds, key="global_search")
 
-    # --- Scraper Section ---
     st.divider()
     with st.expander("⚠️ Update Data (Scraper)", expanded=False):
         if not df.empty:
@@ -277,7 +273,7 @@ with st.sidebar:
             st.success(f"✅ Loaded {count_ds} datasets ({count_col:,} columns) from cache.")
         else:
             st.error("❌ No data found. Please scrape.")
-            
+        
         st.caption("Paste KB article URLs below.")
         pasted_text = st.text_area("URLs", height=100, value=DEFAULT_URLS)
         
@@ -306,15 +302,12 @@ else:
     st.info("👈 Use the **'Find Datasets by Column'** tool or select datasets to begin.")
     st.stop()
 
-# 3. Data Preview
 with st.expander("📋 View Schema Details", expanded=False):
     subset = df[df['dataset_name'].isin(selected_datasets)]
-    # Added 'url' to preview to confirm it exists
     cols_to_show = ['dataset_name', 'column_name', 'data_type', 'description', 'key']
     if 'url' in subset.columns: cols_to_show.append('url')
     st.dataframe(subset[cols_to_show], use_container_width=True, hide_index=True)
 
-# 4. Graph Visualization
 col_header, col_controls = st.columns([1, 1])
 with col_header:
     st.subheader("Connection Graph")
@@ -386,7 +379,6 @@ if G.number_of_nodes() > 0:
 else:
     st.info("No relationships found.")
 
-# 5. Auto-SQL
 st.divider()
 st.subheader("⚡ Instant SQL Builder")
 col_sql1, col_sql2 = st.columns([2,1])
@@ -414,7 +406,6 @@ else:
             joined_tables.add(u)
     st.code("\n".join(sql_lines), language="sql")
 
-# 6. AI Chat
 st.divider()
 st.subheader(f"Ask {ai_provider.split(' ')[0]} about your data")
 
@@ -437,28 +428,40 @@ if prompt := st.chat_input("e.g., Explain these columns..."):
         with st.spinner("Thinking..."):
             try:
                 if use_full_context:
-                    # === CHANGED: Include 'url' in full context ===
-                    context_df = df[['dataset_name', 'column_name', 'data_type', 'key', 'url']]
-                    scope_msg = "You are viewing the FULL database schema."
-                else:
-                    # === CHANGED: Include 'url' in subset context ===
-                    cols_needed = ['dataset_name', 'column_name', 'data_type', 'description', 'key', 'url']
-                    # Handle case where user hasn't re-scraped yet
-                    if 'url' not in df.columns: cols_needed.remove('url')
+                    # === TOKEN LIMIT FIX: COMPRESS SCHEMA ===
+                    # Group by dataset to remove repetition of DatasetName/URL
+                    schema_text = []
+                    for ds_name, group in df.groupby('dataset_name'):
+                        url = group['url'].iloc[0] if 'url' in group.columns and pd.notna(group['url'].iloc[0]) else "No URL"
+                        cols = []
+                        for _, row in group.iterrows():
+                            c = row['column_name']
+                            if row['is_primary_key']: c += " (PK)"
+                            elif row['is_foreign_key']: c += " (FK)"
+                            cols.append(c)
+                        # Format: "TABLE: Users (http...) [Col1, Col2...]"
+                        schema_text.append(f"TABLE: {ds_name} ({url})\nCOLS: {', '.join(cols)}")
                     
+                    scope_msg = "You are viewing the FULL database schema (Summarized to fit context limits)."
+                    final_csv = "\n\n".join(schema_text)
+                else:
+                    cols_needed = ['dataset_name', 'column_name', 'data_type', 'description', 'key', 'url']
+                    if 'url' not in df.columns: cols_needed.remove('url')
                     context_df = df[df['dataset_name'].isin(selected_datasets)][cols_needed] if selected_datasets else df.head(50)
                     scope_msg = f"You are viewing a SUBSET of {len(selected_datasets)} selected datasets."
+                    final_csv = context_df.to_csv(index=False)
 
                 system_msg = f"""
                 You are an expert SQL Data Architect for Brightspace (D2L).
                 Context Scope: {scope_msg}
                 
                 INSTRUCTIONS:
-                1. If you mention a dataset, you MUST provide its Source URL if available in the 'url' column.
+                1. If you mention a dataset, you MUST provide its Source URL (if available).
                 2. Format links as: [Dataset Name](URL)
+                3. Be concise.
                 
                 Schema Data:
-                {context_df.to_csv(index=False)}
+                {final_csv}
                 """
                 
                 client = openai.OpenAI(api_key=api_key, base_url=base_url)
