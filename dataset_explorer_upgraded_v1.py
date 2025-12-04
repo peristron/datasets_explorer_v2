@@ -188,7 +188,6 @@ with st.sidebar:
     st.title("Brightspace Explorer")
     
     # --- DEFAULTS FOR UI ---
-    # FIX: Set default provider string so UI doesn't crash if not logged in
     ai_provider = "OpenAI (GPT-4o)" 
     model_name = "gpt-4o"
 
@@ -207,6 +206,26 @@ with st.sidebar:
         **4. Ask AI (Locked):**
         Log in to unlock AI Chat features.
         """)
+
+    # --- UPDATED LOCATION: DATA SCRAPER ---
+    with st.expander("⚠️ Update Data (Scraper)", expanded=False):
+        if not df.empty:
+            count_ds = df['dataset_name'].nunique()
+            count_col = len(df)
+            st.success(f"✅ Loaded {count_ds} datasets ({count_col:,} columns) from cache.")
+        else:
+            st.error("❌ No data found. Please scrape.")
+        
+        st.caption("Paste KB article URLs below.")
+        pasted_text = st.text_area("URLs", height=100, value=DEFAULT_URLS)
+        
+        if st.button("Scrape URLs", type="primary"):
+            url_list = parse_urls_from_text_area(pasted_text)
+            with st.spinner(f"Scraping {len(url_list)} pages..."):
+                df_new = scrape_and_save_from_list(url_list)
+                stats_msg = f"**Scrape Success:** {df_new['dataset_name'].nunique()} Datasets / {len(df_new):,} Columns"
+                st.session_state['scrape_msg'] = stats_msg
+                st.rerun()
 
     # ========================= AUTHENTICATED SECTION =========================
     if st.session_state['authenticated']:
@@ -258,19 +277,9 @@ with st.sidebar:
     st.header("1. Search & Select")
     
     if not df.empty:
-        with st.expander("🔍 Find Datasets by Column Name", expanded=True):
-            col_search = st.text_input("Enter column (e.g. OrgUnitId)", placeholder="Type field name...")
-            if col_search:
-                matches = df[df['column_name'].astype(str).str.contains(col_search, case=False)]
-                if not matches.empty:
-                    found_datasets = sorted(matches['dataset_name'].unique())
-                    st.success(f"Found in **{len(found_datasets)}** datasets:")
-                    st.dataframe(found_datasets, hide_index=True, use_container_width=True)
-                else:
-                    st.warning("No matching columns found.")
-
         st.subheader("Select Datasets")
-        select_mode = st.radio("Method:", ["Category (Grouped)", "List All"], horizontal=True, label_visibility="collapsed")
+        # --- UPDATED ORDER: List All First, Category Second ---
+        select_mode = st.radio("Method:", ["List All", "Category (Grouped)"], horizontal=True, label_visibility="collapsed")
         selected_datasets = []
         
         if select_mode == "Category (Grouped)":
@@ -282,28 +291,21 @@ with st.sidebar:
                     s = st.multiselect(f"📦 {cat}", cat_ds, key=f"sel_{cat}")
                     selected_datasets.extend(s)
         else: 
+            # Default behavior now "List All"
             all_ds = sorted(df['dataset_name'].unique())
             selected_datasets = st.multiselect("Search All:", all_ds, key="global_search")
 
-    st.divider()
-    with st.expander("⚠️ Update Data (Scraper)", expanded=False):
-        if not df.empty:
-            count_ds = df['dataset_name'].nunique()
-            count_col = len(df)
-            st.success(f"✅ Loaded {count_ds} datasets ({count_col:,} columns) from cache.")
-        else:
-            st.error("❌ No data found. Please scrape.")
-        
-        st.caption("Paste KB article URLs below.")
-        pasted_text = st.text_area("URLs", height=100, value=DEFAULT_URLS)
-        
-        if st.button("Scrape URLs", type="primary"):
-            url_list = parse_urls_from_text_area(pasted_text)
-            with st.spinner(f"Scraping {len(url_list)} pages..."):
-                df_new = scrape_and_save_from_list(url_list)
-                stats_msg = f"**Scrape Success:** {df_new['dataset_name'].nunique()} Datasets / {len(df_new):,} Columns"
-                st.session_state['scrape_msg'] = stats_msg
-                st.rerun()
+        # --- UPDATED LOCATION: COLUMN SEARCH UNDER DATASETS ---
+        with st.expander("🔍 Find Datasets by Column Name", expanded=True):
+            col_search = st.text_input("Enter column (e.g. OrgUnitId)", placeholder="Type field name...")
+            if col_search:
+                matches = df[df['column_name'].astype(str).str.contains(col_search, case=False)]
+                if not matches.empty:
+                    found_datasets = sorted(matches['dataset_name'].unique())
+                    st.success(f"Found in **{len(found_datasets)}** datasets:")
+                    st.dataframe(found_datasets, hide_index=True, use_container_width=True)
+                else:
+                    st.warning("No matching columns found.")
 
 # ========================= MAIN PAGE CONTENT =========================
 if df.empty:
@@ -428,7 +430,6 @@ else:
 
 # 6. AI Chat (Conditional)
 st.divider()
-# FIX: Variable 'ai_provider' now safely defined
 st.subheader(f"Ask {ai_provider.split(' ')[0]} about your data")
 
 if not st.session_state['authenticated']:
