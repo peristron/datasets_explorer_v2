@@ -297,7 +297,7 @@ with st.sidebar:
                 st.session_state['total_tokens'] = 0
                 st.rerun()
         
-        if st.button("Logout", type="secondary"):
+        if st.button("Logout (of AI feature)", type="secondary"):
             logout()
             st.rerun()
 
@@ -518,3 +518,4 @@ else:
                     
                 except Exception as e:
                     st.error(f"Error: {e}")
+
