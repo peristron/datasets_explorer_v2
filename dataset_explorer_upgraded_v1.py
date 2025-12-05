@@ -12,19 +12,19 @@ import openai
 import re
 import logging
 
-# ========================= CONFIG & LOGGING =========================
-st.set_page_config(page_title="Brightspace Explorer & AI", layout="wide", page_icon="🕸️")
+# config, logging
+st.set_page_config(page_title="Brightspace Datasets Explorer & AI", layout="wide", page_icon="🕸️")
 
 logging.basicConfig(filename='scraper.log', filemode='w', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 requests.packages.urllib3.disable_warnings(requests.packages.urllib3.exceptions.InsecureRequestWarning)
 
-# ========================= INITIALIZE SESSION STATE =========================
+# initialize session state
 if 'total_cost' not in st.session_state: st.session_state['total_cost'] = 0.0
 if 'total_tokens' not in st.session_state: st.session_state['total_tokens'] = 0
 if 'authenticated' not in st.session_state: st.session_state['authenticated'] = False
 if 'auth_error' not in st.session_state: st.session_state['auth_error'] = False
 
-# ========================= AUTHENTICATION LOGIC =========================
+# auth logic
 def perform_login():
     """Callback to verify password."""
     pwd = st.secrets.get("app_password")
@@ -43,18 +43,18 @@ def logout():
     st.session_state['authenticated'] = False
     st.session_state['password_input'] = ""
 
-# ========================= HELPER: CLEAR CALLBACK =========================
+# helper, clear callback
 def clear_all_selections():
     for key in list(st.session_state.keys()):
         if key.startswith("sel_") or key == "global_search":
             st.session_state[key] = []
 
-# ========================= SCRAPE SUCCESS MESSAGE =========================
+# scrape success message
 if 'scrape_msg' in st.session_state:
     st.success(st.session_state['scrape_msg'])
     del st.session_state['scrape_msg']
 
-# ========================= DEFAULT URLs =========================
+# currently hard-coded, default uRLs; to be added-to or edited as needed, and UI allows for this ad-hoc as well
 DEFAULT_URLS = """
 https://community.d2l.com/brightspace/kb/articles/4752-accommodations-data-sets
 https://community.d2l.com/brightspace/kb/articles/4712-activity-feed-data-sets
@@ -96,7 +96,7 @@ https://community.d2l.com/brightspace/kb/articles/4740-users-data-sets
 https://community.d2l.com/brightspace/kb/articles/4541-virtual-classroom-data-sets
 """.strip()
 
-# ========================= SCRAPING LOGIC =========================
+# scraping logic
 def parse_urls_from_text_area(text_block):
     urls = [line.strip() for line in text_block.split('\n') if line.strip()]
     valid_urls = [url for url in urls if url.startswith('http')]
@@ -178,20 +178,20 @@ def find_pk_fk_joins(df, selected_datasets):
     result.columns = ['Source Dataset', 'Join Column', 'Target Dataset', 'Target Category']
     return result.drop_duplicates().reset_index(drop=True)
 
-# ========================= SIDEBAR & MAIN LOGIC =========================
+# sidebasr and main logic
 if os.path.exists('dataset_metadata.csv'):
     df = pd.read_csv('dataset_metadata.csv').fillna('')
 else:
     df = pd.DataFrame()
 
 with st.sidebar:
-    st.title("Brightspace Explorer")
+    st.title("Brightspace Datasets Explorer")
     
-    # --- DEFAULTS FOR UI ---
+    # ui defaults
     ai_provider = "OpenAI (GPT-4o)" 
     model_name = "gpt-4o"
 
-    # --- USER GUIDE ---
+    # user guide
     with st.expander("❓ How to use this app", expanded=False):
         st.markdown("""
         **1. Load Data:** 
@@ -207,7 +207,7 @@ with st.sidebar:
         Log in to unlock AI Chat features.
         """)
 
-    # --- UPDATED LOCATION: DATA SCRAPER ---
+    # ---data scraper
     with st.expander("⚠️ Update Data (Scraper)", expanded=False):
         if not df.empty:
             count_ds = df['dataset_name'].nunique()
@@ -227,13 +227,13 @@ with st.sidebar:
                 st.session_state['scrape_msg'] = stats_msg
                 st.rerun()
 
-    # ========================= SEARCH & SELECT SECTIONS =========================
+    # =======search abd select sections
     st.divider()
     st.header("1. Search & Select")
     
     if not df.empty:
         st.subheader("Select Datasets")
-        # --- UPDATED ORDER: List All First, Category Second ---
+        # --- list all first, category second ---
         select_mode = st.radio("Method:", ["List All", "Category (Grouped)"], horizontal=True, label_visibility="collapsed")
         selected_datasets = []
         
@@ -246,11 +246,11 @@ with st.sidebar:
                     s = st.multiselect(f"📦 {cat}", cat_ds, key=f"sel_{cat}")
                     selected_datasets.extend(s)
         else: 
-            # Default behavior now "List All"
+            # default behavior now "List All" above "category"
             all_ds = sorted(df['dataset_name'].unique())
             selected_datasets = st.multiselect("Search All:", all_ds, key="global_search")
 
-        # --- UPDATED LOCATION: COLUMN SEARCH UNDER DATASETS ---
+        # --- column search
         with st.expander("🔍 Find Datasets by Column Name", expanded=True):
             col_search = st.text_input("Enter column (e.g. OrgUnitId)", placeholder="Type field name...")
             if col_search:
@@ -262,7 +262,7 @@ with st.sidebar:
                 else:
                     st.warning("No matching columns found.")
 
-    # ========================= AUTHENTICATED SECTION (MOVED TO BOTTOM) =========================
+    # ====================authenticated section
     st.divider()
     if st.session_state['authenticated']:
         st.success("🔓 AI Features Unlocked")
@@ -302,9 +302,9 @@ with st.sidebar:
             st.rerun()
 
     else:
-        # === LOGIN FORM (MOVED TO BOTTOM) ===
+        # === ai login
         with st.expander("🔐 AI Login (Locked)", expanded=True):
-            # UPDATED HELP TEXT HERE
+            # help text
             st.text_input(
                 "Password", 
                 type="password", 
@@ -315,9 +315,9 @@ with st.sidebar:
             if st.session_state['auth_error']:
                 st.error("Incorrect password.")
 
-# ========================= MAIN PAGE CONTENT =========================
+# ========================= main frame content =========================
 if df.empty:
-    st.title("Brightspace Explorer")
+    st.title("Brightspace Datasets Explorer")
     st.warning("👈 Please use the sidebar 'Update Data' section to scrape data first.")
     st.stop()
 
@@ -436,7 +436,7 @@ else:
             joined_tables.add(u)
     st.code("\n".join(sql_lines), language="sql")
 
-# 6. AI Chat (Conditional)
+# 6 ai chat (conditional)
 st.divider()
 st.subheader(f"Ask {ai_provider.split(' ')[0]} about your data")
 
@@ -444,7 +444,7 @@ if not st.session_state['authenticated']:
     st.info("🔒 **AI features are locked.** Please log in via the sidebar to chat with your data.")
     
 else:
-    # --- LOGGED IN VIEW ---
+    # --- logged-in view
     col_chat_opt, col_chat_msg = st.columns([1, 3])
     with col_chat_opt:
         use_full_context = st.checkbox("Include ALL Datasets", help="Sends the entire database schema to AI. Higher cost/token usage.", value=False)
@@ -464,7 +464,7 @@ else:
             with st.spinner("Thinking..."):
                 try:
                     if use_full_context:
-                        # === COMPRESSION / OPTIMIZATION ===
+                        # optimizing
                         schema_text = []
                         for ds_name, group in df.groupby('dataset_name'):
                             url = group['url'].iloc[0] if 'url' in group.columns and pd.notna(group['url'].iloc[0]) else "No URL"
@@ -518,4 +518,5 @@ else:
                     
                 except Exception as e:
                     st.error(f"Error: {e}")
+
 
