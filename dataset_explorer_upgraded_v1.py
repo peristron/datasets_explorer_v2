@@ -227,7 +227,43 @@ with st.sidebar:
                 st.session_state['scrape_msg'] = stats_msg
                 st.rerun()
 
-    # ========================= AUTHENTICATED SECTION =========================
+    # ========================= SEARCH & SELECT SECTIONS =========================
+    st.divider()
+    st.header("1. Search & Select")
+    
+    if not df.empty:
+        st.subheader("Select Datasets")
+        # --- UPDATED ORDER: List All First, Category Second ---
+        select_mode = st.radio("Method:", ["List All", "Category (Grouped)"], horizontal=True, label_visibility="collapsed")
+        selected_datasets = []
+        
+        if select_mode == "Category (Grouped)":
+            all_cats = sorted(df['category'].unique())
+            selected_cats = st.multiselect("Filter Categories:", all_cats, default=[])
+            if selected_cats:
+                for cat in selected_cats:
+                    cat_ds = sorted(df[df['category'] == cat]['dataset_name'].unique())
+                    s = st.multiselect(f"📦 {cat}", cat_ds, key=f"sel_{cat}")
+                    selected_datasets.extend(s)
+        else: 
+            # Default behavior now "List All"
+            all_ds = sorted(df['dataset_name'].unique())
+            selected_datasets = st.multiselect("Search All:", all_ds, key="global_search")
+
+        # --- UPDATED LOCATION: COLUMN SEARCH UNDER DATASETS ---
+        with st.expander("🔍 Find Datasets by Column Name", expanded=True):
+            col_search = st.text_input("Enter column (e.g. OrgUnitId)", placeholder="Type field name...")
+            if col_search:
+                matches = df[df['column_name'].astype(str).str.contains(col_search, case=False)]
+                if not matches.empty:
+                    found_datasets = sorted(matches['dataset_name'].unique())
+                    st.success(f"Found in **{len(found_datasets)}** datasets:")
+                    st.dataframe(found_datasets, hide_index=True, use_container_width=True)
+                else:
+                    st.warning("No matching columns found.")
+
+    # ========================= AUTHENTICATED SECTION (MOVED TO BOTTOM) =========================
+    st.divider()
     if st.session_state['authenticated']:
         st.success("🔓 AI Features Unlocked")
         
@@ -266,46 +302,18 @@ with st.sidebar:
             st.rerun()
 
     else:
-        # === LOGIN FORM ===
+        # === LOGIN FORM (MOVED TO BOTTOM) ===
         with st.expander("🔐 AI Login (Locked)", expanded=True):
-            st.text_input("Password", type="password", key="password_input", on_change=perform_login, help="Enter password to unlock AI")
+            # UPDATED HELP TEXT HERE
+            st.text_input(
+                "Password", 
+                type="password", 
+                key="password_input", 
+                on_change=perform_login, 
+                help="Enter password to unlock advanced AI schema analysis & chat capabilities."
+            )
             if st.session_state['auth_error']:
                 st.error("Incorrect password.")
-
-    # ========================= PUBLIC SECTIONS =========================
-    st.divider()
-    st.header("1. Search & Select")
-    
-    if not df.empty:
-        st.subheader("Select Datasets")
-        # --- UPDATED ORDER: List All First, Category Second ---
-        select_mode = st.radio("Method:", ["List All", "Category (Grouped)"], horizontal=True, label_visibility="collapsed")
-        selected_datasets = []
-        
-        if select_mode == "Category (Grouped)":
-            all_cats = sorted(df['category'].unique())
-            selected_cats = st.multiselect("Filter Categories:", all_cats, default=[])
-            if selected_cats:
-                for cat in selected_cats:
-                    cat_ds = sorted(df[df['category'] == cat]['dataset_name'].unique())
-                    s = st.multiselect(f"📦 {cat}", cat_ds, key=f"sel_{cat}")
-                    selected_datasets.extend(s)
-        else: 
-            # Default behavior now "List All"
-            all_ds = sorted(df['dataset_name'].unique())
-            selected_datasets = st.multiselect("Search All:", all_ds, key="global_search")
-
-        # --- UPDATED LOCATION: COLUMN SEARCH UNDER DATASETS ---
-        with st.expander("🔍 Find Datasets by Column Name", expanded=True):
-            col_search = st.text_input("Enter column (e.g. OrgUnitId)", placeholder="Type field name...")
-            if col_search:
-                matches = df[df['column_name'].astype(str).str.contains(col_search, case=False)]
-                if not matches.empty:
-                    found_datasets = sorted(matches['dataset_name'].unique())
-                    st.success(f"Found in **{len(found_datasets)}** datasets:")
-                    st.dataframe(found_datasets, hide_index=True, use_container_width=True)
-                else:
-                    st.warning("No matching columns found.")
 
 # ========================= MAIN PAGE CONTENT =========================
 if df.empty:
