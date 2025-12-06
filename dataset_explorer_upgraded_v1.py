@@ -314,7 +314,13 @@ with st.sidebar:
             )
             if st.session_state['auth_error']:
                 st.error("Incorrect password.")
-
+    # --- CROSS LINK ---
+    st.divider()
+    st.markdown("### 🔗 Related Tools")
+    st.info("Tools for processing data exports:")
+    
+    st.link_button("🔎 CSV Query Tool", "https://csvexpl0rer.streamlit.app/", help="Filter, Join & AI-Query large CSV files")
+    st.link_button("✂️ CSV Splitter Utility", "https://csvsplittertool.streamlit.app/", help="Split massive files into chunks")
 # ========================= main frame content =========================
 if df.empty:
     st.title("Brightspace Datasets Explorer")
@@ -518,5 +524,6 @@ else:
                     
                 except Exception as e:
                     st.error(f"Error: {e}")
+
 
 
