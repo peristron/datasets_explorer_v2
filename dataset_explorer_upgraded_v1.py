@@ -317,7 +317,7 @@ with st.sidebar:
     # --- CROSS LINK ---
     st.divider()
     st.markdown("### 🔗 Related Tools")
-    st.info("Tools for processing data exports:")
+    st.info("Other tools you may find useful for related processing of data files:")
     
     st.link_button("🔎 CSV Query Tool", "https://csvexpl0rer.streamlit.app/", help="Filter, Join & AI-Query large CSV files")
     st.link_button("✂️ CSV Splitter Utility", "https://csvsplittertool.streamlit.app/", help="Split massive files into chunks")
@@ -524,6 +524,7 @@ else:
                     
                 except Exception as e:
                     st.error(f"Error: {e}")
+
 
 
 
