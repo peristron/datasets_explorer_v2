@@ -217,7 +217,7 @@ with st.sidebar:
         else:
             st.error("❌ No data found. Please scrape.")
         
-        st.caption("Paste KB article URLs below.")
+        st.caption("Paste New BDS Category URLs below, only as needed")
         pasted_text = st.text_area("URLs", height=100, value=DEFAULT_URLS)
         
         if st.button("Scrape URLs", type="primary"):
@@ -525,6 +525,7 @@ else:
                     
                 except Exception as e:
                     st.error(f"Error: {e}")
+
 
 
 
